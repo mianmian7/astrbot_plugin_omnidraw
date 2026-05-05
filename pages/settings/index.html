@@ -5,9 +5,19 @@
     <title>Omni-Draw Station</title>
     <link rel="stylesheet" href="./style.css" />
     <style>
-        /* 简单的旋转动画 */
-        @keyframes spin { 100% { transform: rotate(360deg); } }
-        .spinner-icon { display: inline-block; animation: spin 1s linear infinite; font-size: 18px; margin-right: 8px; }
+        .gallery-skeleton {
+            background: linear-gradient(90deg, rgba(255,255,255,0.1) 25%, rgba(255,255,255,0.3) 50%, rgba(255,255,255,0.1) 75%);
+            background-size: 400% 100%;
+            animation: skeleton-loading 1.5s infinite ease-in-out;
+            border-radius: 12px;
+            height: 140px;
+            width: 140px;
+            display: inline-block;
+        }
+        @keyframes skeleton-loading {
+            0% { background-position: 100% 50%; }
+            100% { background-position: 0 50%; }
+        }
     </style>
 </head>
 <body>
@@ -96,10 +106,7 @@
                     </div>
                 </div>
                 <section class="card glass-card">
-                    <div id="gallery-loading" style="padding: 40px; text-align: center; color: var(--text-muted); display: none;">
-                        <span class="spinner-icon">↻</span> 正在读取并解析本地图库，请稍候...
-                    </div>
-                    <div class="multi-upload-container" id="gallery-container" style="min-height: 120px; align-items: center; display: flex; flex-wrap: wrap;">
+                    <div class="multi-upload-container" id="gallery-container" style="min-height: 150px; align-items: center; display: flex; flex-wrap: wrap;">
                     </div>
                 </section>
             </div>
