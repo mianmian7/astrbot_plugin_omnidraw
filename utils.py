@@ -1,13 +1,4 @@
-"""
-AstrBot 万象画卷插件 v1.0.0
-
-功能描述：
-- 工具函数模块
-
-作者: your_name
-版本: 1.0.0
-日期: 2026-04-25
-"""
+"""通用工具函数。"""
 
 import asyncio
 import functools

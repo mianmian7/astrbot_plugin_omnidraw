@@ -1,7 +1,4 @@
-"""
-AstrBot 万象画卷插件 v1.1.0
-功能描述：兜底链路调度器
-"""
+"""兜底链路调度器。"""
 
 import aiohttp
 from typing import Any
@@ -22,10 +19,15 @@ class ChainManager:
         last_error = None
         
         for provider_id in chain:
-            # 【关键修复】把 get_provider_by_id 改成了 get_provider
             provider_config = self.config.get_provider(provider_id)
             if not provider_config:
                 logger.warning(f"⚠️ 链路 [{chain_name}] 中的节点 [{provider_id}] 不存在。")
+                continue
+            if not provider_config.base_url or not provider_config.model:
+                logger.warning(f"⚠️ 链路 [{chain_name}] 中的节点 [{provider_id}] 缺少接口地址或模型。")
+                continue
+            if not provider_config.has_api_key:
+                logger.warning(f"⚠️ 链路 [{chain_name}] 中的节点 [{provider_id}] 未配置 API Key。")
                 continue
 
             logger.info(f"🚀 [Chain] 正在将任务交由节点 [{provider_id}] 处理...")

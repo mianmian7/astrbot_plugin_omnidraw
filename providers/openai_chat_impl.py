@@ -6,6 +6,7 @@ import aiohttp
 import re
 import json
 import base64
+import mimetypes
 from typing import Any
 from astrbot.api import logger
 
@@ -16,20 +17,25 @@ class OpenAIChatProvider(BaseProvider):
     async def _encode_image_to_base64(self, image_path_or_url: str) -> str:
         """拦截网络图片下载，对抗防盗链，转化为标准的 Base64 协议"""
         try:
+            if image_path_or_url.startswith("data:image"):
+                return image_path_or_url
             if image_path_or_url.startswith("http"):
                 logger.info("📥 正在本地内存中拦截并下载网络参考图...")
                 headers = {"User-Agent": "Mozilla/5.0"}
                 async with self.session.get(image_path_or_url, headers=headers) as resp:
                     if resp.status == 200:
                         image_bytes = await resp.read()
-                        # 确保带有 MimeType 前缀，这是 Vision 协议的硬性要求
-                        return "data:image/png;base64," + base64.b64encode(image_bytes).decode('utf-8')
+                        mime_type = resp.headers.get("Content-Type", "image/png").split(";", 1)[0]
+                        if not mime_type.startswith("image/"):
+                            mime_type = "image/png"
+                        return f"data:{mime_type};base64," + base64.b64encode(image_bytes).decode('utf-8')
                     else:
                         logger.error(f"下载网络图片失败，状态码: {resp.status}")
                         return ""
             else:
                 with open(image_path_or_url, "rb") as f:
-                    return "data:image/png;base64," + base64.b64encode(f.read()).decode('utf-8')
+                    mime_type = mimetypes.guess_type(image_path_or_url)[0] or "image/png"
+                    return f"data:{mime_type};base64," + base64.b64encode(f.read()).decode('utf-8')
         except Exception as e:
             logger.error("读取或下载参考图失败: " + str(e))
             return ""
@@ -113,8 +119,14 @@ class OpenAIChatProvider(BaseProvider):
             
             result = await response.json()
             if "choices" in result and len(result["choices"]) > 0:
-                content = result["choices"][0]["message"]["content"].strip()
+                content = result["choices"][0].get("message", {}).get("content", "")
+                if isinstance(content, list):
+                    content = "\n".join(str(item.get("text", item)) if isinstance(item, dict) else str(item) for item in content)
+                content = str(content).strip()
                 match = re.search(r'!\[.*?\]\((.*?)\)', content)
+                if match:
+                    return match.group(1)
+                match = re.search(r'(https?://[^\s\]\)"\']+)', content)
                 if match:
                     return match.group(1)
                 if content.startswith("http") or content.startswith("data:image"):

@@ -1,8 +1,4 @@
-"""
-提示词副脑优化器 (Prompt Optimizer) - 动态多风格引擎版
-功能：支持从 WebUI 读取用户设定的风格，动态切换预设参数，并包含自定义注入模式。
-带有无敌抢救模式，无视一切 JSON 语法错误与截断。
-"""
+"""提示词副脑优化器。"""
 import json
 import re
 import aiohttp
@@ -22,7 +18,8 @@ class PromptOptimizer:
 
         chain = self.config.chains.get("optimizer", [])
         provider = self.config.get_provider(chain[0]) if chain else (self.config.providers[0] if self.config.providers else None)
-        if not provider: return [raw_action] * count
+        if not provider or not provider.base_url or not provider.has_api_key:
+            return [raw_action] * count
             
         base_url = provider.base_url.rstrip("/")
         endpoint = f"{base_url}/chat/completions" if base_url.endswith("/v1") else f"{base_url}/v1/chat/completions"
@@ -128,7 +125,7 @@ OUTPUT FORMAT:
 }}"""
 
         payload = {
-            "model": self.config.optimizer_model,
+            "model": self.config.optimizer_model or provider.model,
             "messages": [{"role": "system", "content": sys_prompt}, {"role": "user", "content": raw_action}],
             "max_tokens": 4000 if count > 1 else 2500, 
             "temperature": 0.8,
@@ -199,7 +196,7 @@ OUTPUT FORMAT:
 
                         # 🚀 降维打击：将提取出的数据平铺为大师级自然语言流
                         results = []
-                        anti_collage = "1girl, solo, single image, one single frame, NO grid, NO collage, NO split screen"
+                        anti_collage = "single image, one single frame, one coherent subject or scene, NO grid, NO collage, NO split screen"
                         
                         for item in items:
                             if isinstance(item, dict):

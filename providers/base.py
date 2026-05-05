@@ -1,8 +1,7 @@
-"""
-AstrBot 万象画卷插件 v1.3.0 - Provider 基类
-"""
+"""图片 Provider 基类。"""
 import aiohttp
 import base64
+import mimetypes
 import os
 from abc import ABC, abstractmethod
 from typing import Any, Dict, Optional, List
@@ -36,8 +35,8 @@ class BaseProvider(ABC):
         try:
             with open(image_path, "rb") as image_file:
                 encoded_string = base64.b64encode(image_file.read()).decode('utf-8')
-                # OpenAI 格式通常需要包含前缀
-                return f"data:image/png;base64,{encoded_string}"
+                mime_type = mimetypes.guess_type(image_path)[0] or "image/png"
+                return f"data:{mime_type};base64,{encoded_string}"
         except Exception as e:
             logger.error(f"❌ 读取本地图片失败: {e}")
             return None

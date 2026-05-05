@@ -1,5 +1,7 @@
 import aiohttp
+import base64
 import json
+import mimetypes
 from typing import Any
 from astrbot.api import logger
 
@@ -9,6 +11,11 @@ class OpenAIProvider(BaseProvider):
 
     async def _get_image_bytes(self, image_path_or_url: str) -> bytes:
         """拦截网络图片下载，对抗防盗链"""
+        if image_path_or_url.startswith("data:image"):
+            try:
+                return base64.b64decode(image_path_or_url.split(",", 1)[1], validate=False)
+            except Exception as exc:
+                raise RuntimeError(f"Base64 参考图解析失败: {exc}")
         if image_path_or_url.startswith("http"):
             logger.info("📥 [标准通道] 正在本地内存中拦截并下载网络参考图...")
             headers = {
@@ -22,6 +29,17 @@ class OpenAIProvider(BaseProvider):
         else:
             with open(image_path_or_url, "rb") as f:
                 return f.read()
+
+    def _content_type(self, image_path_or_url: str) -> str:
+        if image_path_or_url.startswith("data:image/jpeg") or image_path_or_url.lower().endswith((".jpg", ".jpeg")):
+            return "image/jpeg"
+        if image_path_or_url.startswith("data:image/webp") or image_path_or_url.lower().endswith(".webp"):
+            return "image/webp"
+        return mimetypes.guess_type(image_path_or_url)[0] or "image/png"
+
+    def _base_without_v1(self, base_url: str) -> str:
+        base_url = base_url.rstrip("/")
+        return base_url[:-3] if base_url.endswith("/v1") else base_url
 
     async def generate_image(self, prompt: str, **kwargs: Any) -> str:
         current_key = self.get_current_key()
@@ -47,7 +65,12 @@ class OpenAIProvider(BaseProvider):
                     image_bytes = await self._get_image_bytes(ref_image)
                 except Exception as e:
                     raise RuntimeError(f"读取第 {idx} 张参考图数据失败: {e}")
-                data.add_field('image', image_bytes, filename=f'reference_{idx}.png', content_type='image/png')
+                data.add_field(
+                    "image",
+                    image_bytes,
+                    filename=f"reference_{idx}.png",
+                    content_type=self._content_type(ref_image),
+                )
 
             data.add_field('prompt', prompt)
             data.add_field('model', self.config.model)
@@ -108,7 +131,7 @@ class OpenAIProvider(BaseProvider):
             if "url" in data_item:
                 img_url = data_item["url"]
                 if not img_url.startswith("http") and not img_url.startswith("data:"):
-                    clean_base = base_url.rstrip("/v1")
+                    clean_base = self._base_without_v1(base_url)
                     clean_url = img_url.lstrip("/")
                     img_url = clean_base + "/" + clean_url
                 return img_url

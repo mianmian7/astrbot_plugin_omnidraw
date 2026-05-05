@@ -5,11 +5,36 @@ let state = {
     presets: [], providers: [], video_providers: [], verbose_report: false
 };
 
+function escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;'
+    }[char]));
+}
+
+function parsePreset(rawPreset) {
+    if (typeof rawPreset === 'object' && rawPreset !== null) {
+        return { name: rawPreset.name || '', prompt: rawPreset.prompt || '' };
+    }
+    const text = String(rawPreset || '');
+    const idx = text.indexOf(':');
+    if (idx === -1) return { name: text, prompt: '' };
+    return { name: text.slice(0, idx), prompt: text.slice(idx + 1) };
+}
+
 function showToast(message, type = 'success') {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = `toast toast-${type}`;
-    toast.innerHTML = `<span class="toast-icon">${type === 'success' ? '✓' : '✕'}</span> <span>${message}</span>`;
+    const icon = document.createElement('span');
+    icon.className = 'toast-icon';
+    icon.textContent = type === 'success' ? '✓' : '✕';
+    const text = document.createElement('span');
+    text.textContent = message;
+    toast.append(icon, text);
     container.appendChild(toast);
     setTimeout(() => toast.classList.add('toast-fadeout'), 2500);
     setTimeout(() => toast.remove(), 2800);
@@ -25,7 +50,7 @@ function renderSelectors() {
             const nodeId = node.id || node['节点ID'];
             if(!nodeId) return '';
             const isActive = nodeId === currentVal;
-            return `<div class="selector-chip ${isActive ? 'active' : ''}" data-id="${nodeId}" data-input="${inputId}">${nodeId}</div>`;
+            return `<div class="selector-chip ${isActive ? 'active' : ''}" data-id="${escapeHtml(nodeId)}" data-input="${escapeHtml(inputId)}">${escapeHtml(nodeId)}</div>`;
         }).join('') || '<span class="empty-hint">请先在「算力集群」中配置并填写节点 ID</span>';
     };
     renderTo('sel-route-img', state.providers, 'route_img');
@@ -43,7 +68,16 @@ function renderPersonaImages() {
     images.forEach((url, idx) => {
         const wrapper = document.createElement('div');
         wrapper.className = 'image-preview-wrapper';
-        wrapper.innerHTML = `<img src="${url}" class="image-preview" alt="Ref" /><button class="btn-del-img" data-action="del-persona-img" data-index="${idx}">×</button>`;
+        const img = document.createElement('img');
+        img.src = String(url || '');
+        img.className = 'image-preview';
+        img.alt = 'Ref';
+        const button = document.createElement('button');
+        button.className = 'btn-del-img';
+        button.dataset.action = 'del-persona-img';
+        button.dataset.index = String(idx);
+        button.textContent = '×';
+        wrapper.append(img, button);
         container.insertBefore(wrapper, trigger);
     });
 }
@@ -63,7 +97,7 @@ async function init() {
     const opt = rawConfig.optimizer_config || rawConfig;
     const route = rawConfig.router_config || rawConfig;
 
-    state.permission_config.allowed_users = pers.allowed_users || perm.allowed_users || "";
+    state.permission_config.allowed_users = perm.allowed_users || "";
     state.router_config.chain_text2img = deepFind(route, ["chain_text2img"], "node_1");
     state.router_config.chain_selfie = deepFind(route, ["chain_selfie"], "node_1");
     state.router_config.chain_video = deepFind(route, ["chain_video"], "video_node_1");
@@ -83,7 +117,7 @@ async function init() {
     state.optimizer_config.max_batch_count = parseInt(deepFind(opt, ["max_batch_count"], 0));
     state.optimizer_config.optimizer_custom_prompt = deepFind(opt, ["optimizer_custom_prompt"]);
 
-    state.presets = (rawConfig.presets || []).map(p => typeof p === 'string' ? { name: p.split(':')[0], prompt: p.split(':')[1] } : p);
+    state.presets = (rawConfig.presets || []).map(parsePreset);
     
     state.providers = (rawConfig.providers || []).map(p => {
         let avail = p.available_models || [];
@@ -162,9 +196,9 @@ function readBasicFields() {
 function renderPresets() {
     const html = state.presets.map((p, i) => `
         <div class="list-item">
-            <input type="text" class="input-glass preset-name" style="width: 140px; border:none; background:transparent;" placeholder="快捷指令名" value="${p.name}" data-sync="preset-name" data-index="${i}">
+            <input type="text" class="input-glass preset-name" style="width: 140px; border:none; background:transparent;" placeholder="快捷指令名" value="${escapeHtml(p.name)}" data-sync="preset-name" data-index="${i}">
             <span style="color:var(--text-muted); font-weight: bold; margin: 0 10px;">→</span>
-            <input type="text" class="input-glass preset-prompt" style="flex:1; border:none; background:transparent;" placeholder="底层的英文描述与参数" value="${p.prompt}" data-sync="preset-prompt" data-index="${i}">
+            <input type="text" class="input-glass preset-prompt" style="flex:1; border:none; background:transparent;" placeholder="底层的英文描述与参数" value="${escapeHtml(p.prompt)}" data-sync="preset-prompt" data-index="${i}">
             <button data-action="del-preset" data-index="${i}" class="btn-glass-secondary" style="border:none; color:var(--text-muted); font-size:16px;">×</button>
         </div>
     `).join('');
@@ -175,7 +209,7 @@ function renderProviders() {
     const html = state.providers.map((p, i) => `
         <div class="glass-card" style="padding: 24px; margin-bottom: 16px;">
             <div class="card-header" style="margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.05); padding-bottom: 12px;">
-                <input type="text" class="input-glass" style="width: 200px; font-weight:bold; font-size: 16px; background: transparent; border:none; border-bottom: 1px solid transparent;" placeholder="输入节点 ID" value="${p.id}" data-sync="prov-id" data-index="${i}">
+                <input type="text" class="input-glass" style="width: 200px; font-weight:bold; font-size: 16px; background: transparent; border:none; border-bottom: 1px solid transparent;" placeholder="输入节点 ID" value="${escapeHtml(p.id)}" data-sync="prov-id" data-index="${i}">
                 <button data-action="del-provider" data-index="${i}" style="background:transparent; border:none; color:var(--danger); font-weight:bold; cursor:pointer;">移除</button>
             </div>
             <div class="grid-2-col">
@@ -185,14 +219,14 @@ function renderProviders() {
                         <div class="api-chip ${p.api_type==='openai_chat'?'active':''}" data-sync="prov-api" data-index="${i}" data-val="openai_chat">对话透传</div>
                     </div>
                 </div>
-                <div class="form-group"><label>接口地址 (需含/v1)</label><input type="text" class="input-glass" value="${p.base_url}" data-sync="prov-url" data-index="${i}"></div>
+                <div class="form-group"><label>接口地址 (需含/v1)</label><input type="text" class="input-glass" value="${escapeHtml(p.base_url)}" data-sync="prov-url" data-index="${i}"></div>
                 
                 <div class="form-group full-width">
                     <label>算力模型池 (点击设为默认，点击 × 移除)</label>
                     <div class="chip-group" style="margin-bottom: 8px;">
                         ${(p.available_models || []).map((m, mIdx) => `
-                            <div class="api-chip ${p.model === m ? 'active' : ''}" data-sync="prov-model-select" data-index="${i}" data-val="${m}">
-                                ${m} <span class="chip-del" data-action="del-prov-model" data-index="${i}" data-midx="${mIdx}">×</span>
+                            <div class="api-chip ${p.model === m ? 'active' : ''}" data-sync="prov-model-select" data-index="${i}" data-val="${escapeHtml(m)}">
+                                ${escapeHtml(m)} <span class="chip-del" data-action="del-prov-model" data-index="${i}" data-midx="${mIdx}">×</span>
                             </div>
                         `).join('')}
                         ${(p.available_models || []).length === 0 ? '<span class="empty-hint">暂无模型，请在下方添加</span>' : ''}
@@ -203,8 +237,8 @@ function renderProviders() {
                     </div>
                 </div>
 
-                <div class="form-group"><label>请求超时</label><input type="number" class="input-glass" value="${p.timeout}" data-sync="prov-time" data-index="${i}"></div>
-                <div class="form-group full-width"><label>API Keys</label><textarea class="input-glass" rows="1" data-sync="prov-keys" data-index="${i}">${p.api_keys}</textarea></div>
+                <div class="form-group"><label>请求超时</label><input type="number" class="input-glass" value="${escapeHtml(p.timeout)}" data-sync="prov-time" data-index="${i}"></div>
+                <div class="form-group full-width"><label>API Keys</label><textarea class="input-glass" rows="1" data-sync="prov-keys" data-index="${i}">${escapeHtml(p.api_keys)}</textarea></div>
             </div>
         </div>
     `).join('');
@@ -215,7 +249,7 @@ function renderVideoProviders() {
     const html = state.video_providers.map((p, i) => `
         <div class="glass-card" style="padding: 24px; margin-bottom: 16px;">
             <div class="card-header" style="margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.05); padding-bottom: 12px;">
-                <input type="text" class="input-glass" style="width: 200px; font-weight:bold; font-size: 16px; background: transparent; border:none; border-bottom: 1px solid transparent;" placeholder="输入视频节点 ID" value="${p.id}" data-sync="vid-id" data-index="${i}">
+                <input type="text" class="input-glass" style="width: 200px; font-weight:bold; font-size: 16px; background: transparent; border:none; border-bottom: 1px solid transparent;" placeholder="输入视频节点 ID" value="${escapeHtml(p.id)}" data-sync="vid-id" data-index="${i}">
                 <button data-action="del-video-provider" data-index="${i}" style="background:transparent; border:none; color:var(--danger); font-weight:bold; cursor:pointer;">移除</button>
             </div>
             <div class="grid-2-col">
@@ -226,14 +260,14 @@ function renderVideoProviders() {
                         <div class="api-chip ${(p.api_type||'').includes('openai_chat')?'active':''}" data-sync="vid-api" data-index="${i}" data-val="openai_chat">对话伪装</div>
                     </div>
                 </div>
-                <div class="form-group"><label>接口地址</label><input type="text" class="input-glass" value="${p.base_url}" data-sync="vid-url" data-index="${i}"></div>
+                <div class="form-group"><label>接口地址</label><input type="text" class="input-glass" value="${escapeHtml(p.base_url)}" data-sync="vid-url" data-index="${i}"></div>
                 
                 <div class="form-group full-width">
                     <label>视频模型池 (点击设为默认，点击 × 移除)</label>
                     <div class="chip-group" style="margin-bottom: 8px;">
                         ${(p.available_models || []).map((m, mIdx) => `
-                            <div class="api-chip ${p.model === m ? 'active' : ''}" data-sync="vid-model-select" data-index="${i}" data-val="${m}">
-                                ${m} <span class="chip-del" data-action="del-vid-model" data-index="${i}" data-midx="${mIdx}">×</span>
+                            <div class="api-chip ${p.model === m ? 'active' : ''}" data-sync="vid-model-select" data-index="${i}" data-val="${escapeHtml(m)}">
+                                ${escapeHtml(m)} <span class="chip-del" data-action="del-vid-model" data-index="${i}" data-midx="${mIdx}">×</span>
                             </div>
                         `).join('')}
                         ${(p.available_models || []).length === 0 ? '<span class="empty-hint">暂无模型，请在下方添加</span>' : ''}
@@ -244,8 +278,8 @@ function renderVideoProviders() {
                     </div>
                 </div>
 
-                <div class="form-group"><label>请求超时</label><input type="number" class="input-glass" value="${p.timeout}" data-sync="vid-time" data-index="${i}"></div>
-                <div class="form-group full-width"><label>API Keys</label><textarea class="input-glass" rows="1" data-sync="vid-keys" data-index="${i}">${p.api_keys}</textarea></div>
+                <div class="form-group"><label>请求超时</label><input type="number" class="input-glass" value="${escapeHtml(p.timeout)}" data-sync="vid-time" data-index="${i}"></div>
+                <div class="form-group full-width"><label>API Keys</label><textarea class="input-glass" rows="1" data-sync="vid-keys" data-index="${i}">${escapeHtml(p.api_keys)}</textarea></div>
             </div>
         </div>
     `).join('');
