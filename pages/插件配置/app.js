@@ -1,97 +1,546 @@
-const bridge = window.AstrBotPluginPage;
-
-let state = {
-    permission_config: {}, persona_config: { persona_ref_image: [] }, optimizer_config: {}, router_config: {},
-    presets: [], providers: [], video_providers: [], verbose_report: false
+const mockConfig = {
+    permission_config: { allowed_users: "" },
+    persona_config: { persona_name: "默认助理", persona_base_prompt: "", persona_ref_image: [] },
+    optimizer_config: {
+        enable_optimizer: true,
+        optimizer_style: "自拍专用极致真实",
+        chain_optimizer: "node_1",
+        optimizer_model: "gpt-4o-mini",
+        optimizer_timeout: 15,
+        max_batch_count: 0,
+        optimizer_custom_prompt: ""
+    },
+    router_config: { chain_text2img: "node_1", chain_selfie: "node_1", chain_video: "video_node_1" },
+    presets: ["写真:daily smartphone portrait --size 1024x1024"],
+    providers: [
+        { id: "node_1", api_type: "openai_image", base_url: "https://api.example.com/v1", model: "gpt-image-1", available_models: ["gpt-image-1", "dall-e-3"], timeout: 60, api_keys: "" }
+    ],
+    video_providers: [
+        { id: "video_node_1", api_type: "async_task", base_url: "https://api.example.com/v1", model: "veo", available_models: ["veo"], timeout: 300, api_keys: "" }
+    ],
+    verbose_report: false
 };
 
+const bridge = window.AstrBotPluginPage || {
+    ready: async () => ({}),
+    apiGet: async () => JSON.parse(JSON.stringify(mockConfig)),
+    apiPost: async (_, payload) => {
+        console.info("[OmniDraw local preview] save_config", payload);
+        return { success: true };
+    }
+};
+
+let state = {
+    permission_config: {},
+    persona_config: { persona_ref_image: [] },
+    optimizer_config: {},
+    router_config: {},
+    presets: [],
+    providers: [],
+    video_providers: [],
+    verbose_report: false
+};
+
+let initialized = false;
+let savedSnapshot = "";
+
 function escapeHtml(value) {
-    return String(value ?? '').replace(/[&<>"']/g, (char) => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#39;'
+    return String(value ?? "").replace(/[&<>"']/g, (char) => ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#39;"
     }[char]));
 }
 
 function parsePreset(rawPreset) {
-    if (typeof rawPreset === 'object' && rawPreset !== null) {
-        return { name: rawPreset.name || '', prompt: rawPreset.prompt || '' };
+    if (typeof rawPreset === "object" && rawPreset !== null) {
+        return { name: rawPreset.name || "", prompt: rawPreset.prompt || "" };
     }
-    const text = String(rawPreset || '');
-    const idx = text.indexOf(':');
-    if (idx === -1) return { name: text, prompt: '' };
+    const text = String(rawPreset || "");
+    const idx = text.indexOf(":");
+    if (idx === -1) return { name: text, prompt: "" };
     return { name: text.slice(0, idx), prompt: text.slice(idx + 1) };
 }
 
-function showToast(message, type = 'success') {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
+const deepFind = (obj, keys, def = "") => {
+    if (!obj) return def;
+    for (const key of keys) {
+        if (obj[key] !== undefined) return obj[key];
+    }
+    return def;
+};
+
+const byId = (id) => document.getElementById(id);
+
+function normalizeModelList(value) {
+    const source = Array.isArray(value) ? value : String(value || "").split(",");
+    return [...new Set(source.map((item) => String(item).trim()).filter(Boolean))];
+}
+
+function normalizeTextAreaKeys(value) {
+    return Array.isArray(value) ? value.join("\n") : String(value || "");
+}
+
+function showToast(message, type = "success") {
+    const container = byId("toast-container");
+    const toast = document.createElement("div");
     toast.className = `toast toast-${type}`;
-    const icon = document.createElement('span');
-    icon.className = 'toast-icon';
-    icon.textContent = type === 'success' ? '✓' : '✕';
-    const text = document.createElement('span');
+    const icon = document.createElement("span");
+    icon.className = "toast-icon";
+    icon.textContent = type === "success" ? "✓" : "!";
+    const text = document.createElement("span");
     text.textContent = message;
     toast.append(icon, text);
     container.appendChild(toast);
-    setTimeout(() => toast.classList.add('toast-fadeout'), 2500);
-    setTimeout(() => toast.remove(), 2800);
+    setTimeout(() => toast.classList.add("toast-fadeout"), 2600);
+    setTimeout(() => toast.remove(), 2920);
+}
+
+function setDirty(force) {
+    if (!initialized) return;
+    const isDirty = typeof force === "boolean" ? force : JSON.stringify(buildPayload()) !== savedSnapshot;
+    document.body.classList.toggle("is-dirty", isDirty);
+    const saveState = byId("save-state");
+    if (saveState) saveState.textContent = isDirty ? "有未保存更改" : "配置已同步";
+}
+
+function updateMetrics() {
+    byId("metric-image-nodes").textContent = state.providers.length;
+    byId("metric-video-nodes").textContent = state.video_providers.length;
+    byId("metric-presets").textContent = state.presets.filter((preset) => preset.name.trim()).length;
 }
 
 function renderSelectors() {
     const renderTo = (containerId, sourceList, inputId) => {
-        const container = document.getElementById(containerId);
-        const hiddenInput = document.getElementById(inputId);
-        if(!container || !hiddenInput) return;
+        const container = byId(containerId);
+        const hiddenInput = byId(inputId);
+        if (!container || !hiddenInput) return;
         const currentVal = hiddenInput.value;
-        container.innerHTML = sourceList.map(node => {
-            const nodeId = node.id || node['节点ID'];
-            if(!nodeId) return '';
+        const html = sourceList.map((node) => {
+            const nodeId = node.id || node["节点ID"];
+            if (!nodeId) return "";
             const isActive = nodeId === currentVal;
-            return `<div class="selector-chip ${isActive ? 'active' : ''}" data-id="${escapeHtml(nodeId)}" data-input="${escapeHtml(inputId)}">${escapeHtml(nodeId)}</div>`;
-        }).join('') || '<span class="empty-hint">请先在「算力集群」中配置并填写节点 ID</span>';
+            return `<button type="button" class="selector-chip ${isActive ? "active" : ""}" data-id="${escapeHtml(nodeId)}" data-input="${escapeHtml(inputId)}">${escapeHtml(nodeId)}</button>`;
+        }).join("");
+        container.innerHTML = html || '<span class="empty-hint">暂无可选节点</span>';
     };
-    renderTo('sel-route-img', state.providers, 'route_img');
-    renderTo('sel-route-selfie', state.providers, 'route_selfie');
-    renderTo('sel-opt-chain', state.providers, 'opt_chain');
-    renderTo('sel-route-video', state.video_providers, 'route_video');
+
+    renderTo("sel-route-img", state.providers, "route_img");
+    renderTo("sel-route-selfie", state.providers, "route_selfie");
+    renderTo("sel-opt-chain", state.providers, "opt_chain");
+    renderTo("sel-route-video", state.video_providers, "route_video");
 }
 
 function renderPersonaImages() {
-    const container = document.getElementById('persona-upload-container');
-    if(!container) return;
-    container.querySelectorAll('.image-preview-wrapper').forEach(el => el.remove());
-    const trigger = document.getElementById('persona-upload-trigger');
+    const container = byId("persona-upload-container");
+    if (!container) return;
+    container.querySelectorAll(".image-preview-wrapper").forEach((el) => el.remove());
+    const trigger = byId("persona-upload-trigger");
     const images = state.persona_config.persona_ref_image || [];
     images.forEach((url, idx) => {
-        const wrapper = document.createElement('div');
-        wrapper.className = 'image-preview-wrapper';
-        const img = document.createElement('img');
-        img.src = String(url || '');
-        img.className = 'image-preview';
-        img.alt = 'Ref';
-        const button = document.createElement('button');
-        button.className = 'btn-del-img';
-        button.dataset.action = 'del-persona-img';
+        const wrapper = document.createElement("div");
+        wrapper.className = "image-preview-wrapper";
+        const img = document.createElement("img");
+        img.src = String(url || "");
+        img.className = "image-preview";
+        img.alt = `Reference ${idx + 1}`;
+        const button = document.createElement("button");
+        button.className = "btn-del-img";
+        button.dataset.action = "del-persona-img";
         button.dataset.index = String(idx);
-        button.textContent = '×';
+        button.type = "button";
+        button.textContent = "×";
         wrapper.append(img, button);
         container.insertBefore(wrapper, trigger);
     });
 }
 
-const deepFind = (obj, keys, def = "") => {
-    if (!obj) return def;
-    for (const key of keys) { if (obj[key] !== undefined) return obj[key]; }
-    return def;
-};
+function renderPresets() {
+    const html = state.presets.map((p, i) => `
+        <div class="list-item">
+            <input type="text" class="input-glass preset-name" placeholder="快捷指令名" value="${escapeHtml(p.name)}" data-sync="preset-name" data-index="${i}">
+            <span class="preset-arrow">→</span>
+            <input type="text" class="input-glass preset-prompt" placeholder="底层提示词与参数" value="${escapeHtml(p.prompt)}" data-sync="preset-prompt" data-index="${i}">
+            <button data-action="del-preset" data-index="${i}" class="btn-glass-secondary btn-danger" type="button">移除</button>
+        </div>
+    `).join("");
+    byId("presets-container").innerHTML = html || '<div class="empty-state">尚未配置快捷指令</div>';
+    updateMetrics();
+}
+
+function renderProviders() {
+    const html = state.providers.map((p, i) => renderProviderCard(p, i, false)).join("");
+    byId("providers-container").innerHTML = html || '<div class="empty-state">尚未配置图像节点</div>';
+    updateMetrics();
+}
+
+function renderVideoProviders() {
+    const html = state.video_providers.map((p, i) => renderProviderCard(p, i, true)).join("");
+    byId("video-providers-container").innerHTML = html || '<div class="empty-state">尚未配置视频节点</div>';
+    updateMetrics();
+}
+
+function renderProviderCard(p, i, isVideo) {
+    const prefix = isVideo ? "vid" : "prov";
+    const delAction = isVideo ? "del-video-provider" : "del-provider";
+    const addModelAction = isVideo ? "add-vid-model" : "add-prov-model";
+    const delModelAction = isVideo ? "del-vid-model" : "del-prov-model";
+    const modelInputId = isVideo ? `new-model-vid-${i}` : `new-model-img-${i}`;
+    const modes = isVideo
+        ? [
+            ["async_task", "异步轮询"],
+            ["openai_sync", "同步阻塞"],
+            ["openai_chat", "对话伪装"]
+        ]
+        : [
+            ["openai_image", "标准生图"],
+            ["openai_chat", "对话透传"]
+        ];
+
+    const modeChips = modes.map(([value, label]) => {
+        const active = isVideo ? (p.api_type || "").includes(value) : p.api_type === value;
+        return `<button type="button" class="api-chip ${active ? "active" : ""}" data-sync="${prefix}-api" data-index="${i}" data-val="${value}">${label}</button>`;
+    }).join("");
+
+    const modelChips = (p.available_models || []).map((model, modelIdx) => `
+        <button type="button" class="api-chip ${p.model === model ? "active" : ""}" data-sync="${prefix}-model-select" data-index="${i}" data-val="${escapeHtml(model)}">
+            <span>${escapeHtml(model)}</span>
+            <span class="chip-del" data-action="${delModelAction}" data-index="${i}" data-midx="${modelIdx}">×</span>
+        </button>
+    `).join("") || '<span class="empty-hint">暂无模型</span>';
+
+    return `
+        <div class="node-card">
+            <div class="node-card-header">
+                <input type="text" class="input-glass node-id-input" placeholder="${isVideo ? "视频节点 ID" : "图像节点 ID"}" value="${escapeHtml(p.id)}" data-sync="${prefix}-id" data-index="${i}">
+                <button data-action="${delAction}" data-index="${i}" class="btn-ghost btn-danger" type="button">移除节点</button>
+            </div>
+            <div class="node-form-grid">
+                <div class="form-group">
+                    <label>${isVideo ? "调用协议" : "接口模式"}</label>
+                    <div class="chip-group">${modeChips}</div>
+                </div>
+                <div class="form-group">
+                    <label>接口地址</label>
+                    <input type="text" class="input-glass" value="${escapeHtml(p.base_url)}" data-sync="${prefix}-url" data-index="${i}">
+                </div>
+                <div class="form-group full-width">
+                    <label>${isVideo ? "视频模型池" : "算力模型池"}</label>
+                    <div class="chip-group">${modelChips}</div>
+                    <div class="model-row">
+                        <input type="text" class="input-glass" id="${modelInputId}" data-model-input="${isVideo ? "video" : "image"}" data-index="${i}" placeholder="${isVideo ? "输入视频模型名称" : "输入新模型名称"}">
+                        <button data-action="${addModelAction}" data-index="${i}" class="btn-glass-secondary" type="button">添加模型</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>请求超时</label>
+                    <input type="number" class="input-glass" value="${escapeHtml(p.timeout)}" min="1" data-sync="${prefix}-time" data-index="${i}">
+                </div>
+                <div class="form-group full-width">
+                    <label>API Keys</label>
+                    <textarea class="input-glass" rows="3" data-sync="${prefix}-keys" data-index="${i}">${escapeHtml(p.api_keys)}</textarea>
+                </div>
+            </div>
+        </div>
+    `;
+}
+
+function bindBasicFields() {
+    byId("perm_allowed_users").value = state.permission_config.allowed_users || "";
+    byId("route_img").value = state.router_config.chain_text2img || "node_1";
+    byId("route_selfie").value = state.router_config.chain_selfie || "node_1";
+    byId("route_video").value = state.router_config.chain_video || "video_node_1";
+    byId("persona_name").value = state.persona_config.persona_name || "默认助理";
+    byId("persona_prompt").value = state.persona_config.persona_base_prompt || "";
+    byId("opt_enable").checked = Boolean(state.optimizer_config.enable_optimizer);
+    byId("opt_style").value = state.optimizer_config.optimizer_style || "手机日常原生感";
+    byId("opt_chain").value = state.optimizer_config.chain_optimizer || "node_1";
+    byId("opt_model").value = state.optimizer_config.optimizer_model || "gpt-4o-mini";
+    byId("opt_timeout").value = state.optimizer_config.optimizer_timeout || 15;
+    byId("opt_batch").value = state.optimizer_config.max_batch_count || 0;
+    byId("opt_custom").value = state.optimizer_config.optimizer_custom_prompt || "";
+    byId("verbose_report").checked = Boolean(state.verbose_report);
+}
+
+function readBasicFields() {
+    state.permission_config.allowed_users = byId("perm_allowed_users").value.trim();
+    state.router_config.chain_text2img = byId("route_img").value.trim();
+    state.router_config.chain_selfie = byId("route_selfie").value.trim();
+    state.router_config.chain_video = byId("route_video").value.trim();
+    state.persona_config.persona_name = byId("persona_name").value.trim();
+    state.persona_config.persona_base_prompt = byId("persona_prompt").value;
+    state.optimizer_config.enable_optimizer = byId("opt_enable").checked;
+    state.optimizer_config.optimizer_style = byId("opt_style").value;
+    state.optimizer_config.chain_optimizer = byId("opt_chain").value.trim();
+    state.optimizer_config.optimizer_model = byId("opt_model").value.trim();
+    state.optimizer_config.optimizer_timeout = parseFloat(byId("opt_timeout").value) || 15;
+    state.optimizer_config.max_batch_count = parseInt(byId("opt_batch").value, 10) || 0;
+    state.optimizer_config.optimizer_custom_prompt = byId("opt_custom").value;
+    state.verbose_report = byId("verbose_report").checked;
+}
+
+function buildPayload() {
+    readBasicFields();
+    return {
+        permission_config: state.permission_config,
+        persona_config: state.persona_config,
+        optimizer_config: state.optimizer_config,
+        router_config: state.router_config,
+        presets: state.presets.filter((p) => p.name.trim()).map((p) => `${p.name.trim()}:${p.prompt || ""}`),
+        providers: state.providers,
+        video_providers: state.video_providers,
+        verbose_report: state.verbose_report
+    };
+}
+
+function validateConfig() {
+    const validateList = (list, label) => {
+        const ids = list.map((node) => String(node.id || "").trim()).filter(Boolean);
+        const duplicates = ids.filter((id, idx) => ids.indexOf(id) !== idx);
+        if (list.some((node) => !String(node.id || "").trim())) return `${label}存在未填写节点 ID`;
+        if (duplicates.length) return `${label}节点 ID 重复：${duplicates[0]}`;
+        return "";
+    };
+    return validateList(state.providers, "图像") || validateList(state.video_providers, "视频");
+}
+
+function setActiveTab(navItem) {
+    const targetId = navItem.getAttribute("data-target");
+    const targetPane = byId(targetId);
+    if (!targetPane) return;
+    document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item === navItem));
+    document.querySelectorAll(".tab-pane").forEach((pane) => pane.classList.toggle("active", pane === targetPane));
+    byId("active-title").textContent = targetPane.dataset.title || navItem.textContent.trim();
+    navItem.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+}
+
+function animateAdd(containerId) {
+    setTimeout(() => {
+        const container = byId(containerId);
+        const el = container?.lastElementChild;
+        if (!el) return;
+        el.classList.add("node-enter");
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 10);
+}
+
+function animateDel(containerId, stateArray, index, renderFn, callback) {
+    const container = byId(containerId);
+    const el = container?.children[index];
+    if (!el) {
+        stateArray.splice(index, 1);
+        renderFn();
+        callback?.();
+        setDirty();
+        return;
+    }
+    el.classList.add("node-exit");
+    setTimeout(() => {
+        stateArray.splice(index, 1);
+        renderFn();
+        callback?.();
+        setDirty();
+    }, 220);
+}
+
+function addModel(kind, idx) {
+    const isVideo = kind === "video";
+    const list = isVideo ? state.video_providers : state.providers;
+    const input = byId(isVideo ? `new-model-vid-${idx}` : `new-model-img-${idx}`);
+    const newModel = input?.value.trim();
+    if (!newModel) return;
+    if (list[idx].available_models.includes(newModel)) {
+        showToast("模型已存在", "error");
+        return;
+    }
+    list[idx].available_models.push(newModel);
+    if (!list[idx].model) list[idx].model = newModel;
+    input.value = "";
+    isVideo ? renderVideoProviders() : renderProviders();
+    setDirty();
+}
+
+function setupEventDelegation() {
+    const fileInput = byId("hidden-file-input");
+
+    document.body.addEventListener("click", (e) => {
+        const navItem = e.target.closest(".nav-item");
+        if (navItem) {
+            setActiveTab(navItem);
+            return;
+        }
+
+        const chip = e.target.closest(".selector-chip");
+        if (chip) {
+            const inputId = chip.getAttribute("data-input");
+            byId(inputId).value = chip.getAttribute("data-id");
+            document.querySelectorAll(`.selector-chip[data-input="${inputId}"]`).forEach((item) => item.classList.remove("active"));
+            chip.classList.add("active");
+            setDirty();
+            return;
+        }
+
+        const apiChip = e.target.closest(".api-chip");
+        if (apiChip && !e.target.closest(".chip-del")) {
+            const sync = apiChip.getAttribute("data-sync");
+            const idx = parseInt(apiChip.getAttribute("data-index"), 10);
+            const val = apiChip.getAttribute("data-val");
+            if (sync === "prov-api") state.providers[idx].api_type = val;
+            if (sync === "vid-api") state.video_providers[idx].api_type = val;
+            if (sync === "prov-model-select") state.providers[idx].model = val;
+            if (sync === "vid-model-select") state.video_providers[idx].model = val;
+            sync.startsWith("vid") ? renderVideoProviders() : renderProviders();
+            setDirty();
+            return;
+        }
+
+        if (e.target.closest("#persona-upload-trigger")) {
+            fileInput.click();
+            return;
+        }
+
+        const btn = e.target.closest("[data-action]");
+        if (!btn) return;
+        const act = btn.getAttribute("data-action");
+        const idx = parseInt(btn.getAttribute("data-index"), 10);
+
+        if (act === "save-config") saveConfig(btn);
+        if (act === "add-preset") {
+            state.presets.push({ name: "", prompt: "" });
+            renderPresets();
+            animateAdd("presets-container");
+            setDirty();
+        }
+        if (act === "del-preset") animateDel("presets-container", state.presets, idx, renderPresets);
+        if (act === "add-provider") {
+            state.providers.push({ id: `node_${state.providers.length + 1}`, api_type: "openai_image", base_url: "", model: "", available_models: [], api_keys: "", timeout: 60 });
+            renderProviders();
+            renderSelectors();
+            animateAdd("providers-container");
+            setDirty();
+        }
+        if (act === "del-provider") animateDel("providers-container", state.providers, idx, renderProviders, renderSelectors);
+        if (act === "add-video-provider") {
+            state.video_providers.push({ id: `video_node_${state.video_providers.length + 1}`, api_type: "async_task", base_url: "", model: "", available_models: [], api_keys: "", timeout: 300 });
+            renderVideoProviders();
+            renderSelectors();
+            animateAdd("video-providers-container");
+            setDirty();
+        }
+        if (act === "del-video-provider") animateDel("video-providers-container", state.video_providers, idx, renderVideoProviders, renderSelectors);
+        if (act === "del-persona-img") animateDel("persona-upload-container", state.persona_config.persona_ref_image, idx, renderPersonaImages);
+        if (act === "add-prov-model") addModel("image", idx);
+        if (act === "add-vid-model") addModel("video", idx);
+        if (act === "del-prov-model") {
+            const modelIdx = parseInt(btn.getAttribute("data-midx"), 10);
+            const removed = state.providers[idx].available_models.splice(modelIdx, 1)[0];
+            if (state.providers[idx].model === removed) state.providers[idx].model = state.providers[idx].available_models[0] || "";
+            renderProviders();
+            setDirty();
+        }
+        if (act === "del-vid-model") {
+            const modelIdx = parseInt(btn.getAttribute("data-midx"), 10);
+            const removed = state.video_providers[idx].available_models.splice(modelIdx, 1)[0];
+            if (state.video_providers[idx].model === removed) state.video_providers[idx].model = state.video_providers[idx].available_models[0] || "";
+            renderVideoProviders();
+            setDirty();
+        }
+    });
+
+    document.body.addEventListener("input", (e) => {
+        const input = e.target;
+        if (!input.hasAttribute("data-sync")) {
+            if (["INPUT", "TEXTAREA", "SELECT"].includes(input.tagName)) setDirty();
+            return;
+        }
+        const s = input.getAttribute("data-sync");
+        const i = parseInt(input.getAttribute("data-index"), 10);
+        const v = input.value;
+        if (s === "preset-name") state.presets[i].name = v;
+        if (s === "preset-prompt") state.presets[i].prompt = v;
+        if (s === "prov-id") state.providers[i].id = v;
+        if (s === "prov-url") state.providers[i].base_url = v;
+        if (s === "prov-time") state.providers[i].timeout = parseFloat(v) || 60;
+        if (s === "prov-keys") state.providers[i].api_keys = v;
+        if (s === "vid-id") state.video_providers[i].id = v;
+        if (s === "vid-url") state.video_providers[i].base_url = v;
+        if (s === "vid-time") state.video_providers[i].timeout = parseFloat(v) || 300;
+        if (s === "vid-keys") state.video_providers[i].api_keys = v;
+        setDirty();
+    });
+
+    document.body.addEventListener("change", (e) => {
+        const input = e.target;
+        if (input.hasAttribute("data-sync") && ["prov-id", "vid-id"].includes(input.getAttribute("data-sync"))) {
+            renderSelectors();
+        }
+        setDirty();
+    });
+
+    document.body.addEventListener("keydown", (e) => {
+        const input = e.target.closest("[data-model-input]");
+        if (!input || e.key !== "Enter") return;
+        e.preventDefault();
+        addModel(input.getAttribute("data-model-input"), parseInt(input.getAttribute("data-index"), 10));
+    });
+
+    fileInput.addEventListener("change", (e) => {
+        const files = Array.from(e.target.files || []);
+        if (!files.length) return;
+        let loadedCount = 0;
+        state.persona_config.persona_ref_image ||= [];
+        files.forEach((file) => {
+            const reader = new FileReader();
+            reader.onload = (evt) => {
+                state.persona_config.persona_ref_image.push(evt.target.result);
+                loadedCount += 1;
+                if (loadedCount === files.length) {
+                    renderPersonaImages();
+                    showToast(`已添加 ${files.length} 张图片`);
+                    setDirty();
+                }
+            };
+            reader.readAsDataURL(file);
+        });
+        fileInput.value = "";
+    });
+}
+
+async function saveConfig(btn) {
+    const validationError = validateConfig();
+    if (validationError) {
+        showToast(validationError, "error");
+        return;
+    }
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = "保存中...";
+    try {
+        const payload = buildPayload();
+        const res = await bridge.apiPost("save_config", payload);
+        if (res?.success) {
+            savedSnapshot = JSON.stringify(payload);
+            setDirty(false);
+            showToast("配置已保存");
+        } else {
+            showToast(res?.message || "保存失败", "error");
+        }
+    } catch (error) {
+        console.error(error);
+        showToast("网络错误", "error");
+    } finally {
+        setTimeout(() => {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }, 420);
+    }
+}
 
 async function init() {
-    const context = await bridge.ready();
+    await bridge.ready();
     const rawConfig = await bridge.apiGet("get_config") || {};
-    
     const perm = rawConfig.permission_config || rawConfig;
     const pers = rawConfig.persona_config || rawConfig;
     const opt = rawConfig.optimizer_config || rawConfig;
@@ -103,9 +552,9 @@ async function init() {
     state.router_config.chain_video = deepFind(route, ["chain_video"], "video_node_1");
     state.persona_config.persona_name = deepFind(pers, ["persona_name"], "默认助理");
     state.persona_config.persona_base_prompt = deepFind(pers, ["persona_base_prompt"]);
-    
-    let rawImage = deepFind(pers, ["persona_ref_image"]);
-    if (typeof rawImage === 'string' && rawImage.trim() !== '') state.persona_config.persona_ref_image = [rawImage];
+
+    const rawImage = deepFind(pers, ["persona_ref_image"]);
+    if (typeof rawImage === "string" && rawImage.trim()) state.persona_config.persona_ref_image = [rawImage];
     else if (Array.isArray(rawImage)) state.persona_config.persona_ref_image = rawImage;
     else state.persona_config.persona_ref_image = [];
 
@@ -113,389 +562,55 @@ async function init() {
     state.optimizer_config.optimizer_style = deepFind(opt, ["optimizer_style"], "手机日常原生感");
     state.optimizer_config.chain_optimizer = deepFind(opt, ["chain_optimizer"], "node_1");
     state.optimizer_config.optimizer_model = deepFind(opt, ["optimizer_model"], "gpt-4o-mini");
-    state.optimizer_config.optimizer_timeout = parseFloat(deepFind(opt, ["optimizer_timeout"], 15));
-    state.optimizer_config.max_batch_count = parseInt(deepFind(opt, ["max_batch_count"], 0));
+    state.optimizer_config.optimizer_timeout = parseFloat(deepFind(opt, ["optimizer_timeout"], 15)) || 15;
+    state.optimizer_config.max_batch_count = parseInt(deepFind(opt, ["max_batch_count"], 0), 10) || 0;
     state.optimizer_config.optimizer_custom_prompt = deepFind(opt, ["optimizer_custom_prompt"]);
 
     state.presets = (rawConfig.presets || []).map(parsePreset);
-    
-    state.providers = (rawConfig.providers || []).map(p => {
-        let avail = p.available_models || [];
-        if(avail.length === 0) {
-            const mRaw = p.model || p['模型名称'] || '';
-            avail = mRaw.split(',').map(s=>s.trim()).filter(Boolean);
-        }
-        let defModel = p.model || (avail.length > 0 ? avail[0] : "");
+    state.providers = (rawConfig.providers || []).map((p) => {
+        const availableModels = normalizeModelList(p.available_models?.length ? p.available_models : (p.model || p["模型名称"] || ""));
+        const model = p.model && !String(p.model).includes(",") ? p.model : (availableModels[0] || "");
         return {
-            id: p.id || p['节点ID'] || '', api_type: p.api_type || p['接口模式'] || 'openai_image',
-            base_url: p.base_url || p['接口地址 (需含/v1)'] || '', model: defModel, available_models: avail,
-            timeout: p.timeout || p['超时时间(秒)'] || 60, api_keys: Array.isArray(p.api_keys) ? p.api_keys.join('\n') : (p.api_keys || p['API密钥'] || '')
-        };
-    });
-    
-    state.video_providers = (rawConfig.video_providers || []).map(p => {
-        let avail = p.available_models || [];
-        if(avail.length === 0) {
-            const mRaw = p.model || p['模型名称'] || '';
-            avail = mRaw.split(',').map(s=>s.trim()).filter(Boolean);
-        }
-        let defModel = p.model || (avail.length > 0 ? avail[0] : "");
-        return {
-            id: p.id || p['节点ID'] || '', api_type: p.api_type || p['接口模式'] || 'async_task',
-            base_url: p.base_url || p['接口地址 (需含/v1或/v2)'] || p['接口地址 (需含/v1)'] || '',
-            model: defModel, available_models: avail, timeout: p.timeout || p['超时时间(秒)'] || 300,
-            api_keys: Array.isArray(p.api_keys) ? p.api_keys.join('\n') : (p.api_keys || p['API密钥'] || '')
+            id: p.id || p["节点ID"] || "",
+            api_type: p.api_type || p["接口模式"] || "openai_image",
+            base_url: p.base_url || p["接口地址 (需含/v1)"] || "",
+            model,
+            available_models: availableModels,
+            timeout: p.timeout || p["超时时间(秒)"] || 60,
+            api_keys: normalizeTextAreaKeys(p.api_keys || p["API密钥"] || "")
         };
     });
 
-    state.verbose_report = rawConfig.verbose_report || false;
+    state.video_providers = (rawConfig.video_providers || []).map((p) => {
+        const availableModels = normalizeModelList(p.available_models?.length ? p.available_models : (p.model || p["模型名称"] || ""));
+        const model = p.model && !String(p.model).includes(",") ? p.model : (availableModels[0] || "");
+        return {
+            id: p.id || p["节点ID"] || "",
+            api_type: p.api_type || p["接口模式"] || "async_task",
+            base_url: p.base_url || p["接口地址 (需含/v1或/v2)"] || p["接口地址 (需含/v1)"] || "",
+            model,
+            available_models: availableModels,
+            timeout: p.timeout || p["超时时间(秒)"] || 300,
+            api_keys: normalizeTextAreaKeys(p.api_keys || p["API密钥"] || "")
+        };
+    });
+
+    state.verbose_report = Boolean(rawConfig.verbose_report);
 
     bindBasicFields();
     renderSelectors();
     renderPresets();
     renderProviders();
     renderVideoProviders();
-    setupEventDelegation();
     renderPersonaImages();
+    setupEventDelegation();
+    updateMetrics();
+    initialized = true;
+    savedSnapshot = JSON.stringify(buildPayload());
+    setDirty(false);
 }
 
-function bindBasicFields() {
-    document.getElementById("perm_allowed_users").value = state.permission_config.allowed_users;
-    document.getElementById("route_img").value = state.router_config.chain_text2img;
-    document.getElementById("route_selfie").value = state.router_config.chain_selfie;
-    document.getElementById("route_video").value = state.router_config.chain_video;
-    document.getElementById("persona_name").value = state.persona_config.persona_name;
-    document.getElementById("persona_prompt").value = state.persona_config.persona_base_prompt;
-    document.getElementById("opt_enable").checked = state.optimizer_config.enable_optimizer;
-    document.getElementById("opt_style").value = state.optimizer_config.optimizer_style;
-    document.getElementById("opt_chain").value = state.optimizer_config.chain_optimizer;
-    document.getElementById("opt_model").value = state.optimizer_config.optimizer_model;
-    document.getElementById("opt_timeout").value = state.optimizer_config.optimizer_timeout;
-    document.getElementById("opt_batch").value = state.optimizer_config.max_batch_count;
-    document.getElementById("opt_custom").value = state.optimizer_config.optimizer_custom_prompt;
-    document.getElementById("verbose_report").checked = state.verbose_report;
-}
-
-function readBasicFields() {
-    state.permission_config.allowed_users = document.getElementById("perm_allowed_users").value;
-    state.router_config.chain_text2img = document.getElementById("route_img").value;
-    state.router_config.chain_selfie = document.getElementById("route_selfie").value;
-    state.router_config.chain_video = document.getElementById("route_video").value;
-    state.persona_config.persona_name = document.getElementById("persona_name").value;
-    state.persona_config.persona_base_prompt = document.getElementById("persona_prompt").value;
-    state.optimizer_config.enable_optimizer = document.getElementById("opt_enable").checked;
-    state.optimizer_config.optimizer_style = document.getElementById("opt_style").value;
-    state.optimizer_config.chain_optimizer = document.getElementById("opt_chain").value;
-    state.optimizer_config.optimizer_model = document.getElementById("opt_model").value;
-    state.optimizer_config.optimizer_timeout = parseFloat(document.getElementById("opt_timeout").value);
-    state.optimizer_config.max_batch_count = parseInt(document.getElementById("opt_batch").value);
-    state.optimizer_config.optimizer_custom_prompt = document.getElementById("opt_custom").value;
-    state.verbose_report = document.getElementById("verbose_report").checked;
-}
-
-function renderPresets() {
-    const html = state.presets.map((p, i) => `
-        <div class="list-item">
-            <input type="text" class="input-glass preset-name" style="width: 140px; border:none; background:transparent;" placeholder="快捷指令名" value="${escapeHtml(p.name)}" data-sync="preset-name" data-index="${i}">
-            <span style="color:var(--text-muted); font-weight: bold; margin: 0 10px;">→</span>
-            <input type="text" class="input-glass preset-prompt" style="flex:1; border:none; background:transparent;" placeholder="底层的英文描述与参数" value="${escapeHtml(p.prompt)}" data-sync="preset-prompt" data-index="${i}">
-            <button data-action="del-preset" data-index="${i}" class="btn-glass-secondary" style="border:none; color:var(--text-muted); font-size:16px;">×</button>
-        </div>
-    `).join('');
-    document.getElementById("presets-container").innerHTML = html || '<div style="text-align:center; padding: 30px; color: var(--text-muted);">尚未配置快捷指令</div>';
-}
-
-function renderProviders() {
-    const html = state.providers.map((p, i) => `
-        <div class="glass-card" style="padding: 24px; margin-bottom: 16px;">
-            <div class="card-header" style="margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.05); padding-bottom: 12px;">
-                <input type="text" class="input-glass" style="width: 200px; font-weight:bold; font-size: 16px; background: transparent; border:none; border-bottom: 1px solid transparent;" placeholder="输入节点 ID" value="${escapeHtml(p.id)}" data-sync="prov-id" data-index="${i}">
-                <button data-action="del-provider" data-index="${i}" style="background:transparent; border:none; color:var(--danger); font-weight:bold; cursor:pointer;">移除</button>
-            </div>
-            <div class="grid-2-col">
-                <div class="form-group"><label>接口模式</label>
-                    <div class="chip-group">
-                        <div class="api-chip ${p.api_type==='openai_image'?'active':''}" data-sync="prov-api" data-index="${i}" data-val="openai_image">标准生图</div>
-                        <div class="api-chip ${p.api_type==='openai_chat'?'active':''}" data-sync="prov-api" data-index="${i}" data-val="openai_chat">对话透传</div>
-                    </div>
-                </div>
-                <div class="form-group"><label>接口地址 (需含/v1)</label><input type="text" class="input-glass" value="${escapeHtml(p.base_url)}" data-sync="prov-url" data-index="${i}"></div>
-                
-                <div class="form-group full-width">
-                    <label>算力模型池 (点击设为默认，点击 × 移除)</label>
-                    <div class="chip-group" style="margin-bottom: 8px;">
-                        ${(p.available_models || []).map((m, mIdx) => `
-                            <div class="api-chip ${p.model === m ? 'active' : ''}" data-sync="prov-model-select" data-index="${i}" data-val="${escapeHtml(m)}">
-                                ${escapeHtml(m)} <span class="chip-del" data-action="del-prov-model" data-index="${i}" data-midx="${mIdx}">×</span>
-                            </div>
-                        `).join('')}
-                        ${(p.available_models || []).length === 0 ? '<span class="empty-hint">暂无模型，请在下方添加</span>' : ''}
-                    </div>
-                    <div style="display:flex; gap:10px;">
-                        <input type="text" class="input-glass" id="new-model-img-${i}" placeholder="输入新模型名称 (如 dall-e-3)" style="flex:1;">
-                        <button data-action="add-prov-model" data-index="${i}" class="btn-glass-secondary">添加模型</button>
-                    </div>
-                </div>
-
-                <div class="form-group"><label>请求超时</label><input type="number" class="input-glass" value="${escapeHtml(p.timeout)}" data-sync="prov-time" data-index="${i}"></div>
-                <div class="form-group full-width"><label>API Keys</label><textarea class="input-glass" rows="1" data-sync="prov-keys" data-index="${i}">${escapeHtml(p.api_keys)}</textarea></div>
-            </div>
-        </div>
-    `).join('');
-    document.getElementById("providers-container").innerHTML = html;
-}
-
-function renderVideoProviders() {
-    const html = state.video_providers.map((p, i) => `
-        <div class="glass-card" style="padding: 24px; margin-bottom: 16px;">
-            <div class="card-header" style="margin-bottom: 16px; border-bottom: 1px solid rgba(0,0,0,0.05); padding-bottom: 12px;">
-                <input type="text" class="input-glass" style="width: 200px; font-weight:bold; font-size: 16px; background: transparent; border:none; border-bottom: 1px solid transparent;" placeholder="输入视频节点 ID" value="${escapeHtml(p.id)}" data-sync="vid-id" data-index="${i}">
-                <button data-action="del-video-provider" data-index="${i}" style="background:transparent; border:none; color:var(--danger); font-weight:bold; cursor:pointer;">移除</button>
-            </div>
-            <div class="grid-2-col">
-                <div class="form-group"><label>调用协议</label>
-                    <div class="chip-group">
-                        <div class="api-chip ${(p.api_type||'').includes('async_task')?'active':''}" data-sync="vid-api" data-index="${i}" data-val="async_task">异步轮询</div>
-                        <div class="api-chip ${(p.api_type||'').includes('openai_sync')?'active':''}" data-sync="vid-api" data-index="${i}" data-val="openai_sync">同步阻塞</div>
-                        <div class="api-chip ${(p.api_type||'').includes('openai_chat')?'active':''}" data-sync="vid-api" data-index="${i}" data-val="openai_chat">对话伪装</div>
-                    </div>
-                </div>
-                <div class="form-group"><label>接口地址</label><input type="text" class="input-glass" value="${escapeHtml(p.base_url)}" data-sync="vid-url" data-index="${i}"></div>
-                
-                <div class="form-group full-width">
-                    <label>视频模型池 (点击设为默认，点击 × 移除)</label>
-                    <div class="chip-group" style="margin-bottom: 8px;">
-                        ${(p.available_models || []).map((m, mIdx) => `
-                            <div class="api-chip ${p.model === m ? 'active' : ''}" data-sync="vid-model-select" data-index="${i}" data-val="${escapeHtml(m)}">
-                                ${escapeHtml(m)} <span class="chip-del" data-action="del-vid-model" data-index="${i}" data-midx="${mIdx}">×</span>
-                            </div>
-                        `).join('')}
-                        ${(p.available_models || []).length === 0 ? '<span class="empty-hint">暂无模型，请在下方添加</span>' : ''}
-                    </div>
-                    <div style="display:flex; gap:10px;">
-                        <input type="text" class="input-glass" id="new-model-vid-${i}" placeholder="输入视频模型名称" style="flex:1;">
-                        <button data-action="add-vid-model" data-index="${i}" class="btn-glass-secondary">添加模型</button>
-                    </div>
-                </div>
-
-                <div class="form-group"><label>请求超时</label><input type="number" class="input-glass" value="${escapeHtml(p.timeout)}" data-sync="vid-time" data-index="${i}"></div>
-                <div class="form-group full-width"><label>API Keys</label><textarea class="input-glass" rows="1" data-sync="vid-keys" data-index="${i}">${escapeHtml(p.api_keys)}</textarea></div>
-            </div>
-        </div>
-    `).join('');
-    document.getElementById("video-providers-container").innerHTML = html;
-}
-
-function setupEventDelegation() {
-    const fileInput = document.getElementById('hidden-file-input');
-    
-    const animateAdd = (containerId) => {
-        setTimeout(() => {
-            const container = document.getElementById(containerId);
-            const el = container.lastElementChild;
-            if(el) {
-                el.classList.add('node-enter');
-                el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            }
-        }, 10);
-    };
-
-    const animateDel = (containerId, stateArray, index, renderFn, callback) => {
-        const container = document.getElementById(containerId);
-        const el = container.children[index];
-        if (el) {
-            el.classList.add('node-exit');
-            setTimeout(() => {
-                stateArray.splice(index, 1);
-                renderFn();
-                if(callback) callback();
-            }, 300);
-        }
-    };
-
-    document.body.addEventListener('click', (e) => {
-        const navItem = e.target.closest('.nav-item');
-        if (navItem) {
-            document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-            navItem.classList.add('active');
-            document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-            document.getElementById(navItem.getAttribute('data-target')).classList.add('active');
-            return;
-        }
-
-        const chip = e.target.closest('.selector-chip');
-        if (chip) {
-            const inputId = chip.getAttribute('data-input');
-            document.getElementById(inputId).value = chip.getAttribute('data-id');
-            document.querySelectorAll(`.selector-chip[data-input="${inputId}"]`).forEach(c => c.classList.remove('active'));
-            chip.classList.add('active');
-            return;
-        }
-
-        const apiChip = e.target.closest('.api-chip');
-        if (apiChip && !e.target.closest('.chip-del')) {
-            const sync = apiChip.getAttribute('data-sync');
-            const idx = parseInt(apiChip.getAttribute('data-index'), 10);
-            const val = apiChip.getAttribute('data-val');
-            
-            if (sync === 'prov-api') { state.providers[idx].api_type = val; renderProviders(); } 
-            else if (sync === 'vid-api') { state.video_providers[idx].api_type = val; renderVideoProviders(); }
-            else if (sync === 'prov-model-select') { state.providers[idx].model = val; renderProviders(); } 
-            else if (sync === 'vid-model-select') { state.video_providers[idx].model = val; renderVideoProviders(); }
-            return;
-        }
-
-        if (e.target.closest('#persona-upload-trigger')) fileInput.click();
-
-        // 🔴 终极修复：使用 [data-action] 而不仅是 button，这样就能拦截到属于 <span> 的关闭按钮了！
-        const btn = e.target.closest('[data-action]');
-        if (!btn) return;
-        const act = btn.getAttribute('data-action');
-        const idx = parseInt(btn.getAttribute('data-index'), 10);
-
-        if (act === 'save-config') saveConfig(btn);
-        
-        if (act === 'add-preset') { state.presets.push({name:"", prompt:""}); renderPresets(); animateAdd('presets-container'); }
-        if (act === 'del-preset') { animateDel('presets-container', state.presets, idx, renderPresets); }
-        
-        if (act === 'add-provider') { state.providers.push({id:`node_${state.providers.length+1}`, api_type:"openai_image", base_url:"", model:"", available_models:[], api_keys:"", timeout:60}); renderProviders(); renderSelectors(); animateAdd('providers-container'); }
-        if (act === 'del-provider') { animateDel('providers-container', state.providers, idx, renderProviders, renderSelectors); }
-        
-        if (act === 'add-video-provider') { state.video_providers.push({id:`v_node_${state.video_providers.length+1}`, api_type:"async_task", base_url:"", model:"", available_models:[], api_keys:"", timeout:300}); renderVideoProviders(); renderSelectors(); animateAdd('video-providers-container'); }
-        if (act === 'del-video-provider') { animateDel('video-providers-container', state.video_providers, idx, renderVideoProviders, renderSelectors); }
-        
-        if (act === 'del-persona-img') { animateDel('persona-upload-container', state.persona_config.persona_ref_image, idx, renderPersonaImages); }
-
-        if (act === 'add-prov-model') {
-            const input = document.getElementById(`new-model-img-${idx}`);
-            const newModel = input.value.trim();
-            if(newModel && !state.providers[idx].available_models.includes(newModel)) {
-                state.providers[idx].available_models.push(newModel);
-                if(!state.providers[idx].model) state.providers[idx].model = newModel;
-                renderProviders();
-            }
-        }
-        if (act === 'add-vid-model') {
-            const input = document.getElementById(`new-model-vid-${idx}`);
-            const newModel = input.value.trim();
-            if(newModel && !state.video_providers[idx].available_models.includes(newModel)) {
-                state.video_providers[idx].available_models.push(newModel);
-                if(!state.video_providers[idx].model) state.video_providers[idx].model = newModel;
-                renderVideoProviders();
-            }
-        }
-        if (act === 'del-prov-model') {
-            e.stopPropagation(); // 防止触发父级 div 的点击事件
-            const mIdx = parseInt(btn.getAttribute('data-midx'), 10);
-            const removed = state.providers[idx].available_models.splice(mIdx, 1)[0];
-            if(state.providers[idx].model === removed) state.providers[idx].model = state.providers[idx].available_models[0] || "";
-            renderProviders();
-        }
-        if (act === 'del-vid-model') {
-            e.stopPropagation();
-            const mIdx = parseInt(btn.getAttribute('data-midx'), 10);
-            const removed = state.video_providers[idx].available_models.splice(mIdx, 1)[0];
-            if(state.video_providers[idx].model === removed) state.video_providers[idx].model = state.video_providers[idx].available_models[0] || "";
-            renderVideoProviders();
-        }
-    });
-
-    fileInput.addEventListener('change', function(e) {
-        const files = Array.from(e.target.files);
-        if (!files.length) return;
-        let loadedCount = 0;
-        if (!state.persona_config.persona_ref_image) state.persona_config.persona_ref_image = [];
-        files.forEach(file => {
-            const reader = new FileReader();
-            reader.onload = function(evt) {
-                state.persona_config.persona_ref_image.push(evt.target.result);
-                loadedCount++;
-                if (loadedCount === files.length) {
-                    renderPersonaImages();
-                    showToast(`成功提取 ${files.length} 张图片`);
-                }
-            };
-            reader.readAsDataURL(file);
-        });
-        fileInput.value = '';
-    });
-
-    // 🔴 终极修复：为了防止因为模型删改导致 UI 重绘（renderProviders）时把未保存的文字清空，
-    // 我们必须保留这个双向绑定的实时同步机制！
-    document.body.addEventListener('input', (e) => {
-        const input = e.target;
-        if (!input.hasAttribute('data-sync')) return;
-        const s = input.getAttribute('data-sync');
-        const i = parseInt(input.getAttribute('data-index'), 10);
-        const v = input.value;
-        
-        if (s === 'preset-name') state.presets[i].name = v;
-        if (s === 'preset-prompt') state.presets[i].prompt = v;
-        
-        if (s === 'prov-id') { state.providers[i].id = v; renderSelectors(); }
-        if (s === 'prov-url') state.providers[i].base_url = v;
-        if (s === 'prov-time') state.providers[i].timeout = v;
-        if (s === 'prov-keys') state.providers[i].api_keys = v;
-        
-        if (s === 'vid-id') { state.video_providers[i].id = v; renderSelectors(); }
-        if (s === 'vid-url') state.video_providers[i].base_url = v;
-        if (s === 'vid-time') state.video_providers[i].timeout = v;
-        if (s === 'vid-keys') state.video_providers[i].api_keys = v;
-    });
-
-    document.body.addEventListener('change', (e) => {
-        const input = e.target;
-        if (!input.hasAttribute('data-sync')) return;
-        const s = input.getAttribute('data-sync');
-        if (s === 'prov-id' || s === 'vid-id') renderSelectors();
-    });
-}
-
-async function saveConfig(btn) {
-    btn.disabled = true;
-    const originalText = btn.innerHTML;
-    btn.innerHTML = `<span class="spinner">↻</span> 部署中...`;
-    
-    // 强制读取上方固定表单
-    readBasicFields();
-
-    // 开启终极快照捕捉，双保险保证不漏数据
-    const getDOMValues = (selector) => Array.from(document.querySelectorAll(selector)).map(el => el.value);
-    
-    const provIds = getDOMValues('[data-sync="prov-id"]');
-    const provUrls = getDOMValues('[data-sync="prov-url"]');
-    const provTimes = getDOMValues('[data-sync="prov-time"]');
-    const provKeys = getDOMValues('[data-sync="prov-keys"]');
-    state.providers.forEach((p, i) => {
-        if(provIds[i] !== undefined) p.id = provIds[i];
-        if(provUrls[i] !== undefined) p.base_url = provUrls[i];
-        if(provTimes[i] !== undefined) p.timeout = parseFloat(provTimes[i]) || 60;
-        if(provKeys[i] !== undefined) p.api_keys = provKeys[i];
-    });
-
-    const vidIds = getDOMValues('[data-sync="vid-id"]');
-    const vidUrls = getDOMValues('[data-sync="vid-url"]');
-    const vidTimes = getDOMValues('[data-sync="vid-time"]');
-    const vidKeys = getDOMValues('[data-sync="vid-keys"]');
-    state.video_providers.forEach((p, i) => {
-        if(vidIds[i] !== undefined) p.id = vidIds[i];
-        if(vidUrls[i] !== undefined) p.base_url = vidUrls[i];
-        if(vidTimes[i] !== undefined) p.timeout = parseFloat(vidTimes[i]) || 300;
-        if(vidKeys[i] !== undefined) p.api_keys = vidKeys[i];
-    });
-
-    const payload = {
-        ...state,
-        presets: state.presets.filter(p=>p.name).map(p=>`${p.name}:${p.prompt}`)
-    };
-
-    try {
-        const res = await bridge.apiPost("save_config", payload);
-        if (res.success) showToast("部署成功，已生效！");
-        else showToast("部署异常", "error");
-    } catch(e) { showToast("网络错误", "error"); }
-    
-    setTimeout(() => { btn.disabled = false; btn.innerHTML = originalText; }, 800);
-}
-
-init();
+init().catch((error) => {
+    console.error(error);
+    showToast("配置页初始化失败", "error");
+});
