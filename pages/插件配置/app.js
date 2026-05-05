@@ -310,10 +310,13 @@ function setActiveTab(navItem) {
     const targetId = navItem.getAttribute("data-target");
     const targetPane = byId(targetId);
     if (!targetPane) return;
+    const content = document.querySelector(".content");
+    content?.classList.add("is-switching");
     document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item === navItem));
     document.querySelectorAll(".tab-pane").forEach((pane) => pane.classList.toggle("active", pane === targetPane));
     byId("active-title").textContent = targetPane.dataset.title || navItem.textContent.trim();
     navItem.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    window.setTimeout(() => content?.classList.remove("is-switching"), 260);
 }
 
 function animateAdd(containerId) {
@@ -364,6 +367,21 @@ function addModel(kind, idx) {
 
 function setupEventDelegation() {
     const fileInput = byId("hidden-file-input");
+    const pressableSelector = ".nav-item, .btn-primary, .btn-secondary, .btn-glass-secondary, .btn-ghost, .upload-trigger, .selector-chip, .api-chip";
+
+    document.body.addEventListener("pointerdown", (e) => {
+        const target = e.target.closest(pressableSelector);
+        if (!target || target.disabled) return;
+        target.classList.add("is-pressing");
+    });
+
+    const clearPressed = () => {
+        document.querySelectorAll(".is-pressing").forEach((item) => item.classList.remove("is-pressing"));
+    };
+    document.addEventListener("pointerup", clearPressed);
+    document.addEventListener("pointercancel", clearPressed);
+    document.addEventListener("pointerleave", clearPressed);
+    document.addEventListener("click", clearPressed);
 
     document.body.addEventListener("click", (e) => {
         const navItem = e.target.closest(".nav-item");

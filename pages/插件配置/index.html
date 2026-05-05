@@ -3,36 +3,45 @@
 <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>OmniDraw Console</title>
+    <meta name="theme-color" content="#C1E6FF" />
+    <title>OmniDraw Station</title>
+    <link rel="icon" href="./logo.png" />
     <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
     <div class="app-shell">
         <aside class="sidebar">
             <div class="brand-block">
-                <div class="brand-mark">万</div>
+                <div class="brand-mark" aria-hidden="true">
+                    <img src="./logo.png" alt="" />
+                </div>
                 <div>
                     <h1>万象画卷</h1>
-                    <p>OmniDraw Console</p>
+                    <p>OmniDraw Station</p>
                 </div>
             </div>
+            <div class="sidebar-status"><span></span>SYSTEM_ONLINE</div>
 
             <nav class="nav-menu" aria-label="配置导航">
+                <div class="nav-label">GATEWAY</div>
                 <button class="nav-item active" data-target="tab-basic" type="button">
                     <span class="nav-icon">⚙</span><span>全局</span>
                 </button>
+                <div class="nav-label">CREATIVE</div>
                 <button class="nav-item" data-target="tab-persona" type="button">
                     <span class="nav-icon">◎</span><span>人设</span>
                 </button>
                 <button class="nav-item" data-target="tab-hub" type="button">
                     <span class="nav-icon">↔</span><span>调度</span>
                 </button>
+                <div class="nav-label">INTELLIGENCE</div>
                 <button class="nav-item" data-target="tab-optimizer" type="button">
                     <span class="nav-icon">✦</span><span>副脑</span>
                 </button>
                 <button class="nav-item" data-target="tab-presets" type="button">
                     <span class="nav-icon">⌘</span><span>宏</span>
                 </button>
+                <div class="nav-label">INFRASTRUCTURE</div>
                 <button class="nav-item" data-target="tab-nodes" type="button">
                     <span class="nav-icon">▣</span><span>节点</span>
                 </button>
