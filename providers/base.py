@@ -22,12 +22,18 @@ def _has_endpoint_path(base_url: str, endpoint_suffixes: List[str]) -> bool:
     return any(lowered.endswith(suffix) for suffix in endpoint_suffixes)
 
 
+def _replace_endpoint_path(base_url: str, endpoint_suffix: str, replacement_suffix: str) -> str:
+    return base_url[: -len(endpoint_suffix)] + replacement_suffix
+
+
 def build_chat_completions_endpoint(base_url: str) -> str:
     base_url = normalize_base_url(base_url)
     if not base_url:
         return ""
-    if _has_endpoint_path(base_url, ["/chat/completions", "/responses"]):
+    if _has_endpoint_path(base_url, ["/chat/completions"]):
         return base_url
+    if _has_endpoint_path(base_url, ["/responses"]):
+        return _replace_endpoint_path(base_url, "/responses", "/chat/completions")
     return f"{base_url}/chat/completions" if base_url.endswith("/v1") else f"{base_url}/v1/chat/completions"
 
 
@@ -35,8 +41,10 @@ def build_image_generations_endpoint(base_url: str) -> str:
     base_url = normalize_base_url(base_url)
     if not base_url:
         return ""
-    if _has_endpoint_path(base_url, ["/images/generations", "/images/edits"]):
+    if _has_endpoint_path(base_url, ["/images/generations"]):
         return base_url
+    if _has_endpoint_path(base_url, ["/images/edits"]):
+        return _replace_endpoint_path(base_url, "/images/edits", "/images/generations")
     return f"{base_url}/images/generations"
 
 
@@ -109,7 +117,7 @@ class BaseProvider(ABC):
         """将本地图片文件转为 API 兼容的 Base64 字符串"""
         if not image_path or not os.path.exists(image_path):
             return None
-        
+
         logger.info(f"[{self.config.id}] 正在将本地参考图转为 Base64: {image_path}")
         try:
             with open(image_path, "rb") as image_file:

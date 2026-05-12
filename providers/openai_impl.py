@@ -37,9 +37,27 @@ class OpenAIProvider(BaseProvider):
         mime_type = self._content_type(image_path_or_url)
         return f"data:{mime_type};base64," + base64.b64encode(image_bytes).decode("utf-8")
 
-    def _base_without_v1(self, base_url: str) -> str:
+    def _api_root_url(self, base_url: str) -> str:
         base_url = normalize_base_url(base_url)
-        return base_url[:-3] if base_url.endswith("/v1") else base_url
+        lowered = base_url.lower()
+        endpoint_suffixes = (
+            "/images/generations",
+            "/images/edits",
+            "/chat/completions",
+            "/videos/generations",
+        )
+        for suffix in endpoint_suffixes:
+            if lowered.endswith(suffix):
+                return base_url[: -len(suffix)]
+        return base_url
+
+    def _resolve_image_url(self, image_url: str, base_url: str) -> str:
+        image_url = str(image_url or "")
+        if image_url.startswith("http") or image_url.startswith("data:"):
+            return image_url
+        clean_base = self._api_root_url(base_url).rstrip("/")
+        clean_url = image_url.lstrip("/")
+        return clean_base + "/" + clean_url
 
     async def generate_image(self, prompt: str, **kwargs: Any) -> str:
         current_key = self.get_current_key()
@@ -94,34 +112,34 @@ class OpenAIProvider(BaseProvider):
             data.add_field('prompt', prompt)
             data.add_field('model', self.config.model)
             data.add_field('n', '1')
-            
+
             # 高级参数注入表单
             for k, v in api_kwargs.items():
                 data.add_field(k, str(v))
-            
+
             headers = {"Authorization": "Bearer " + current_key}
             timeout_obj = aiohttp.ClientTimeout(total=self.config.timeout)
             async with self.session.post(url, data=data, headers=headers, timeout=timeout_obj) as response:
                 return await self._parse_response(response, base_url)
-                
+
         else:
             url = build_image_generations_endpoint(base_url)
-            
+
             # 基础 Payload
             payload = {
-                "model": self.config.model, 
-                "prompt": prompt, 
+                "model": self.config.model,
+                "prompt": prompt,
                 "n": 1
             }
-            
+
             # 🚀 完美兼容 gptimage2 / gemini-3.1-image 规范
             # 暴力将所有高级参数塞入 JSON 的最外层，中转 API 会直接识别并调用底层
             payload.update(api_kwargs)
-            
+
             logger.info(f"📤 [标准通道] 附带高级参数的请求体:\n{json.dumps(payload, ensure_ascii=False)}")
-            
+
             headers = {"Content-Type": "application/json", "Authorization": "Bearer " + current_key}
-            
+
             timeout_obj = aiohttp.ClientTimeout(total=self.config.timeout)
             async with self.session.post(url, json=payload, headers=headers, timeout=timeout_obj) as response:
                 return await self._parse_response(response, base_url)
@@ -138,21 +156,26 @@ class OpenAIProvider(BaseProvider):
                     error_msg = error_json["error"]["message"]
             except Exception:
                 pass
-                
+
             raise RuntimeError("HTTP " + str(status) + ": " + error_msg)
-        
+
         result = await response.json()
-        
+
         if "data" in result and len(result["data"]) > 0:
             data_item = result["data"][0]
             if "b64_json" in data_item:
                 return "data:image/png;base64," + data_item["b64_json"]
             if "url" in data_item:
-                img_url = data_item["url"]
-                if not img_url.startswith("http") and not img_url.startswith("data:"):
-                    clean_base = self._base_without_v1(base_url)
-                    clean_url = img_url.lstrip("/")
-                    img_url = clean_base + "/" + clean_url
-                return img_url
-                
+                return self._resolve_image_url(data_item["url"], base_url)
+
+        if "images" in result and len(result["images"]) > 0:
+            image_item = result["images"][0]
+            if isinstance(image_item, str):
+                return self._resolve_image_url(image_item, base_url)
+            if isinstance(image_item, dict):
+                if "b64_json" in image_item:
+                    return "data:image/png;base64," + image_item["b64_json"]
+                if "url" in image_item:
+                    return self._resolve_image_url(image_item["url"], base_url)
+
         raise ValueError("API 返回结构异常，未找到图片数据: " + str(result))
