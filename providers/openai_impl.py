@@ -2,9 +2,17 @@ import aiohttp
 import base64
 import json
 from typing import Any
+from urllib.parse import urljoin
+
 from astrbot.api import logger
 
-from .base import BaseProvider, build_image_edits_endpoint, build_image_generations_endpoint, guess_image_content_type, normalize_base_url
+from .base import (
+    BaseProvider,
+    build_image_edits_endpoint,
+    build_image_generations_endpoint,
+    guess_image_content_type,
+    strip_known_endpoint_path,
+)
 
 class OpenAIProvider(BaseProvider):
 
@@ -37,34 +45,21 @@ class OpenAIProvider(BaseProvider):
         mime_type = self._content_type(image_path_or_url)
         return f"data:{mime_type};base64," + base64.b64encode(image_bytes).decode("utf-8")
 
-    def _api_root_url(self, base_url: str) -> str:
-        base_url = normalize_base_url(base_url)
-        lowered = base_url.lower()
-        endpoint_suffixes = (
-            "/images/generations",
-            "/images/edits",
-            "/chat/completions",
-            "/videos/generations",
-        )
-        for suffix in endpoint_suffixes:
-            if lowered.endswith(suffix):
-                return base_url[: -len(suffix)]
-        return base_url
+    def _response_base_url(self, base_url: str) -> str:
+        api_root = strip_known_endpoint_path(base_url)
+        return api_root[:-3] if api_root.endswith("/v1") else api_root
 
-    def _resolve_image_url(self, image_url: str, base_url: str) -> str:
-        image_url = str(image_url or "")
-        if image_url.startswith("http") or image_url.startswith("data:"):
-            return image_url
-        clean_base = self._api_root_url(base_url).rstrip("/")
-        clean_url = image_url.lstrip("/")
-        return clean_base + "/" + clean_url
+    def _resolve_image_url(self, img_url: str, base_url: str) -> str:
+        if img_url.startswith("http") or img_url.startswith("data:"):
+            return img_url
+        return urljoin(self._response_base_url(base_url).rstrip("/") + "/", img_url.lstrip("/"))
 
     async def generate_image(self, prompt: str, **kwargs: Any) -> str:
         current_key = self.get_current_key()
         if not current_key:
             raise ValueError("节点未配置 API Key！")
 
-        base_url = normalize_base_url(self.config.base_url)
+        base_url = self.config.base_url
         ref_images = self.get_reference_images(**kwargs)
 
         logger.info(f"📝 [标准通道] 最终发送给 API 的核心提示词:\n{prompt}")
@@ -90,7 +85,8 @@ class OpenAIProvider(BaseProvider):
                         raise RuntimeError(f"读取第 {idx} 张参考图数据失败: {e}")
                     payload["image" if idx == 1 else f"image{idx}"] = image_value
                 payload.update(api_kwargs)
-                logger.info(f"📤 [标准通道] 附带高级参数的请求体:\n{json.dumps({k: v for k, v in payload.items() if not str(k).startswith('image')}, ensure_ascii=False)}")
+                log_payload = {k: v for k, v in payload.items() if not str(k).startswith("image")}
+                logger.info(f"📤 [标准通道] 附带高级参数的请求体:\n{json.dumps(log_payload, ensure_ascii=False)}")
                 headers = {"Content-Type": "application/json", "Authorization": "Bearer " + current_key}
                 timeout_obj = aiohttp.ClientTimeout(total=self.config.timeout)
                 async with self.session.post(url, json=payload, headers=headers, timeout=timeout_obj) as response:
@@ -166,16 +162,15 @@ class OpenAIProvider(BaseProvider):
             if "b64_json" in data_item:
                 return "data:image/png;base64," + data_item["b64_json"]
             if "url" in data_item:
-                return self._resolve_image_url(data_item["url"], base_url)
+                return self._resolve_image_url(str(data_item["url"]), base_url)
 
-        if "images" in result and len(result["images"]) > 0:
+        if "images" in result and isinstance(result["images"], list) and result["images"]:
             image_item = result["images"][0]
+            if isinstance(image_item, dict) and "url" in image_item:
+                return self._resolve_image_url(str(image_item["url"]), base_url)
+            if isinstance(image_item, dict) and "b64_json" in image_item:
+                return "data:image/png;base64," + image_item["b64_json"]
             if isinstance(image_item, str):
                 return self._resolve_image_url(image_item, base_url)
-            if isinstance(image_item, dict):
-                if "b64_json" in image_item:
-                    return "data:image/png;base64," + image_item["b64_json"]
-                if "url" in image_item:
-                    return self._resolve_image_url(image_item["url"], base_url)
 
         raise ValueError("API 返回结构异常，未找到图片数据: " + str(result))

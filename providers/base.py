@@ -5,7 +5,7 @@ import mimetypes
 import os
 import threading
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Iterable, Optional, List
 from astrbot.api import logger
 from ..models import ProviderConfig
 
@@ -17,13 +17,29 @@ def normalize_base_url(base_url: str) -> str:
     return str(base_url or "").rstrip("/")
 
 
-def _has_endpoint_path(base_url: str, endpoint_suffixes: List[str]) -> bool:
+def _has_endpoint_path(base_url: str, endpoint_suffixes: Iterable[str]) -> bool:
     lowered = base_url.lower()
     return any(lowered.endswith(suffix) for suffix in endpoint_suffixes)
 
 
 def _replace_endpoint_path(base_url: str, endpoint_suffix: str, replacement_suffix: str) -> str:
-    return base_url[: -len(endpoint_suffix)] + replacement_suffix
+    if base_url.lower().endswith(endpoint_suffix):
+        return base_url[: -len(endpoint_suffix)] + replacement_suffix
+    return base_url
+
+
+def strip_known_endpoint_path(base_url: str) -> str:
+    base_url = normalize_base_url(base_url)
+    for suffix in (
+        "/chat/completions",
+        "/responses",
+        "/images/generations",
+        "/images/edits",
+        "/videos/generations",
+    ):
+        if base_url.lower().endswith(suffix):
+            return base_url[: -len(suffix)]
+    return base_url
 
 
 def build_chat_completions_endpoint(base_url: str) -> str:
@@ -32,8 +48,9 @@ def build_chat_completions_endpoint(base_url: str) -> str:
         return ""
     if _has_endpoint_path(base_url, ["/chat/completions"]):
         return base_url
-    if _has_endpoint_path(base_url, ["/responses"]):
-        return _replace_endpoint_path(base_url, "/responses", "/chat/completions")
+    base_url = _replace_endpoint_path(base_url, "/responses", "/chat/completions")
+    if _has_endpoint_path(base_url, ["/chat/completions"]):
+        return base_url
     return f"{base_url}/chat/completions" if base_url.endswith("/v1") else f"{base_url}/v1/chat/completions"
 
 
@@ -43,8 +60,9 @@ def build_image_generations_endpoint(base_url: str) -> str:
         return ""
     if _has_endpoint_path(base_url, ["/images/generations"]):
         return base_url
-    if _has_endpoint_path(base_url, ["/images/edits"]):
-        return _replace_endpoint_path(base_url, "/images/edits", "/images/generations")
+    base_url = _replace_endpoint_path(base_url, "/images/edits", "/images/generations")
+    if _has_endpoint_path(base_url, ["/images/generations"]):
+        return base_url
     return f"{base_url}/images/generations"
 
 
