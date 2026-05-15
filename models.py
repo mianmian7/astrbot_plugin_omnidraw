@@ -259,7 +259,7 @@ class PluginConfig:
             video_providers=video_providers,
             chains=chains,
             presets=presets_dict,
-            enable_optimizer=_to_bool(opt_conf.get("enable_optimizer", True)),
+            enable_optimizer=_to_bool(opt_conf.get("enable_optimizer", False)),
             optimizer_model=optimizer_model or "gpt-4o-mini",
             optimizer_timeout=_to_float(opt_conf.get("optimizer_timeout", 15.0), 15.0, minimum=1.0),
             max_batch_count=_to_int(opt_conf.get("max_batch_count", 0), 0, minimum=0),

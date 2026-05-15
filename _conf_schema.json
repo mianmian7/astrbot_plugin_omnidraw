@@ -365,7 +365,7 @@
       "enable_optimizer": {
         "description": "启用副脑",
         "type": "bool",
-        "default": true
+        "default": false
       },
       "optimizer_style": {
         "description": "内置风格",
