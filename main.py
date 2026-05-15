@@ -1961,16 +1961,14 @@ class OmniDrawPlugin(Star):
             if safe_refs:
                 kwargs["user_refs"] = safe_refs
 
-            # 自动添加参考图（如果用户没有手动提供参考图）
+            # 检查是否需要搜索参考图
             if not safe_refs and prompt and self.plugin_config.enable_auto_search_refs:
                 trigger_mode = self.plugin_config.auto_search_trigger_mode
                 should_search = False
 
                 if trigger_mode == "always":
-                    # 总是搜索
                     should_search = True
                 elif trigger_mode == "keyword":
-                    # 只有包含关键词时才搜索
                     keywords = self.plugin_config.auto_search_keywords
                     should_search = any(kw.lower() in prompt.lower() for kw in keywords)
 
@@ -1984,14 +1982,11 @@ class OmniDrawPlugin(Star):
                             safe_refs = downloaded_refs
                             kwargs["user_refs"] = safe_refs
                     else:
-                        # 如果没有预设URL，尝试在线搜索
-                        search_urls = await self._search_reference_images_online(prompt, session)
-                        if search_urls:
-                            logger.info(f"[OmniDraw] 在线搜索到 {len(search_urls)} 个参考图")
-                            downloaded_refs = await self._process_and_save_images(search_urls, session=session)
-                            if downloaded_refs:
-                                safe_refs = downloaded_refs
-                                kwargs["user_refs"] = safe_refs
+                        # 没有预设URL，返回提示让LLM接管
+                        yield event.plain_result(
+                            f"{MessageEmoji.INFO} 检测到需要搜索参考图，请通过对话方式触发（如：画{prompt}），LLM会自动搜索官方参考图。"
+                        )
+                        return
 
             msg = self._format_pending_message(
                 self.plugin_config.draw_pending_message,
