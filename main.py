@@ -1050,6 +1050,33 @@ class OmniDrawPlugin(Star):
         except asyncio.CancelledError:
             raise
 
+    def _get_preset_reference_urls(self, prompt: str) -> List[str]:
+        """根据提示词获取预设的角色参考图URL"""
+        if not self.plugin_config.enable_auto_search_refs:
+            return []
+
+        # 检查是否包含需要参考图的关键词
+        keywords = self.plugin_config.auto_search_keywords
+        if not any(kw.lower() in prompt.lower() for kw in keywords):
+            return []
+
+        # 从配置中获取预设的URL
+        preset_refs = getattr(self.plugin_config, 'auto_search_preset_refs', {})
+        if not isinstance(preset_refs, dict):
+            return []
+
+        found_urls = []
+        for kw in keywords:
+            if kw.lower() in prompt.lower() and kw in preset_refs:
+                urls = preset_refs[kw]
+                if isinstance(urls, list):
+                    found_urls.extend(urls)
+                elif isinstance(urls, str) and urls:
+                    found_urls.append(urls)
+
+        max_refs = self.plugin_config.auto_search_max_refs
+        return found_urls[:max_refs]
+
     def _get_event_images(self, event: AstrMessageEvent) -> List[str]:
         images = []
         visited = set()
@@ -1918,6 +1945,16 @@ class OmniDrawPlugin(Star):
             param_count = len(kwargs)
             if safe_refs:
                 kwargs["user_refs"] = safe_refs
+
+            # 自动添加预设参考图（如果用户没有手动提供参考图）
+            if not safe_refs and prompt:
+                preset_urls = self._get_preset_reference_urls(prompt)
+                if preset_urls:
+                    logger.info(f"[OmniDraw] 自动添加 {len(preset_urls)} 个预设参考图")
+                    downloaded_refs = await self._process_and_save_images(preset_urls, session=session)
+                    if downloaded_refs:
+                        safe_refs = downloaded_refs
+                        kwargs["user_refs"] = safe_refs
 
             msg = self._format_pending_message(
                 self.plugin_config.draw_pending_message,

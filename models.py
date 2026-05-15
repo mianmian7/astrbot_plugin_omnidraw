@@ -90,6 +90,12 @@ class PluginConfig:
     draw_error_message: str
     selfie_error_message: str
     verbose_report: bool
+    # 自动搜索参考图配置
+    enable_auto_search_refs: bool
+    auto_search_keywords: List[str]
+    auto_search_sites: List[str]
+    auto_search_max_refs: int
+    auto_search_preset_refs: Dict[str, List[str]]
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any], data_dir: str) -> "PluginConfig":
@@ -224,6 +230,23 @@ class PluginConfig:
         reply_conf["draw_error_message"] = draw_error_message
         reply_conf["selfie_error_message"] = selfie_error_message
 
+        # 自动搜索参考图配置
+        search_ref_conf = _ensure_dict(config_dict, "auto_search_ref_config")
+        enable_auto_search_refs = _to_bool(search_ref_conf.get("enable_auto_search_refs", False))
+        auto_search_keywords = _split_csv_or_lines(search_ref_conf.get("auto_search_keywords", "嘉然,向晚,乃琳,贝拉,珈乐,A-SOUL"))
+        auto_search_sites = _split_csv_or_lines(search_ref_conf.get("auto_search_sites", "moegirl.org.cn,baidu.com"))
+        auto_search_max_refs = _to_int(search_ref_conf.get("auto_search_max_refs", 2), 2, minimum=1, maximum=5)
+
+        # 预设角色参考图URL
+        preset_refs_raw = search_ref_conf.get("preset_refs", {})
+        auto_search_preset_refs = {}
+        if isinstance(preset_refs_raw, dict):
+            for key, value in preset_refs_raw.items():
+                if isinstance(value, list):
+                    auto_search_preset_refs[key] = [str(url) for url in value if url]
+                elif isinstance(value, str) and value:
+                    auto_search_preset_refs[key] = [value]
+
         return cls(
             providers=providers,
             video_providers=video_providers,
@@ -260,6 +283,11 @@ class PluginConfig:
             draw_error_message=draw_error_message,
             selfie_error_message=selfie_error_message,
             verbose_report=_to_bool(config_dict.get("verbose_report", False)),
+            enable_auto_search_refs=enable_auto_search_refs,
+            auto_search_keywords=auto_search_keywords,
+            auto_search_sites=auto_search_sites,
+            auto_search_max_refs=auto_search_max_refs,
+            auto_search_preset_refs=auto_search_preset_refs,
         )
 
     def get_provider(self, provider_id: str) -> Optional[ProviderConfig]:
