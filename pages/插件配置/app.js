@@ -42,6 +42,12 @@ const mockConfig = {
         optimizer_custom_prompt: ""
     },
     router_config: { chain_text2img: "node_1", chain_selfie: "node_1", chain_video: "video_node_1" },
+    enable_auto_search_refs: true,
+    auto_search_trigger_mode: "keyword",
+    auto_search_keywords: "嘉然,向晚,乃琳,贝拉,A-SOUL",
+    auto_search_sites: "moegirl.org.cn,bilibili.com,baidu.com",
+    auto_search_max_refs: 2,
+    auto_search_llm_prompt: "需要搜索参考图，关键词：{keywords}。请调用 web_search 搜索图片URL，然后调用 generate_image 时通过 extra_params 参数传递参考图：extra_params=\"--ref_url URL1 --ref_url URL2\"",
     presets: ["写真:daily smartphone portrait --size 1024x1024"],
     providers: [
         { id: "node_1", api_type: "openai_image", base_url: "https://api.example.com/v1", model: "gpt-image-1", available_models: ["gpt-image-1", "dall-e-3"], timeout: 60, api_keys: "" }
@@ -914,6 +920,12 @@ function bindBasicFields() {
     byId("opt_batch").value = state.optimizer_config.max_batch_count || 0;
     byId("opt_custom").value = state.optimizer_config.optimizer_custom_prompt || "";
     byId("verbose_report").checked = Boolean(state.verbose_report);
+    byId("enable_auto_search_refs").checked = Boolean(state.enable_auto_search_refs);
+    byId("auto_search_trigger_mode").value = state.auto_search_trigger_mode || "keyword";
+    byId("auto_search_keywords").value = state.auto_search_keywords || "嘉然,向晚,乃琳,贝拉,A-SOUL";
+    byId("auto_search_sites").value = state.auto_search_sites || "moegirl.org.cn,bilibili.com,baidu.com";
+    byId("auto_search_max_refs").value = state.auto_search_max_refs || 2;
+    byId("auto_search_llm_prompt").value = state.auto_search_llm_prompt || "";
 }
 
 function readBasicFields() {
@@ -949,6 +961,12 @@ function readBasicFields() {
     state.optimizer_config.max_batch_count = parseInt(byId("opt_batch").value, 10) || 0;
     state.optimizer_config.optimizer_custom_prompt = byId("opt_custom").value;
     state.verbose_report = byId("verbose_report").checked;
+    state.enable_auto_search_refs = byId("enable_auto_search_refs").checked;
+    state.auto_search_trigger_mode = byId("auto_search_trigger_mode").value;
+    state.auto_search_keywords = byId("auto_search_keywords").value.trim();
+    state.auto_search_sites = byId("auto_search_sites").value.trim();
+    state.auto_search_max_refs = parseInt(byId("auto_search_max_refs").value, 10) || 2;
+    state.auto_search_llm_prompt = byId("auto_search_llm_prompt").value.trim();
 }
 
 function buildPayload() {
@@ -964,7 +982,13 @@ function buildPayload() {
         presets: state.presets.filter((p) => p.name.trim()).map((p) => `${p.name.trim()}:${p.prompt || ""}`),
         providers: state.providers,
         video_providers: state.video_providers,
-        verbose_report: state.verbose_report
+        verbose_report: state.verbose_report,
+        enable_auto_search_refs: state.enable_auto_search_refs,
+        auto_search_trigger_mode: state.auto_search_trigger_mode,
+        auto_search_keywords: state.auto_search_keywords,
+        auto_search_sites: state.auto_search_sites,
+        auto_search_max_refs: state.auto_search_max_refs,
+        auto_search_llm_prompt: state.auto_search_llm_prompt
     };
 }
 
@@ -1388,6 +1412,13 @@ async function init() {
     state.optimizer_config.optimizer_timeout = parseFloat(deepFind(opt, ["optimizer_timeout"], 15)) || 15;
     state.optimizer_config.max_batch_count = parseInt(deepFind(opt, ["max_batch_count"], 0), 10) || 0;
     state.optimizer_config.optimizer_custom_prompt = deepFind(opt, ["optimizer_custom_prompt"]);
+
+    state.enable_auto_search_refs = deepFind(rawConfig, ["enable_auto_search_refs"], true);
+    state.auto_search_trigger_mode = deepFind(rawConfig, ["auto_search_trigger_mode"], "keyword");
+    state.auto_search_keywords = deepFind(rawConfig, ["auto_search_keywords"], "嘉然,向晚,乃琳,贝拉,A-SOUL");
+    state.auto_search_sites = deepFind(rawConfig, ["auto_search_sites"], "moegirl.org.cn,bilibili.com,baidu.com");
+    state.auto_search_max_refs = parseInt(deepFind(rawConfig, ["auto_search_max_refs"], 2), 10) || 2;
+    state.auto_search_llm_prompt = deepFind(rawConfig, ["auto_search_llm_prompt"], "");
 
     state.presets = (rawConfig.presets || []).map(parsePreset);
     state.providers = (rawConfig.providers || []).map((p) => {
