@@ -245,7 +245,7 @@ class PluginConfig:
         auto_search_llm_prompt = str(config_dict.get("auto_search_llm_prompt", "")).strip()
 
         # 预设角色参考图URL
-        preset_refs_raw = search_ref_conf.get("preset_refs", {})
+        preset_refs_raw = config_dict.get("preset_refs", {})
         auto_search_preset_refs = {}
         if isinstance(preset_refs_raw, dict):
             for key, value in preset_refs_raw.items():
