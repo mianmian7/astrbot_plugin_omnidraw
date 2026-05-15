@@ -2191,10 +2191,10 @@ class OmniDrawPlugin(Star):
         """
         AI 画图工具。当用户提出明确的画面要求你画出来时调用此工具。
         Args:
-            prompt (string): 图片提示词，描述主体、风格、场景、构图和细节。
+            prompt (string): 图片提示词，直接使用用户原始描述，不要翻译成英文、不要扩展细节、不要自行补充风格描述。例如用户说"嘉然和向晚的合照"，prompt 就写"嘉然和向晚的合照"。
             count (int): 图片数量。默认为 1。
             aspect_ratio (string): 宽高比例，例如 1:1、3:4、9:16、16:9。
-            size (string): 分辨率或尺寸参数，例如 1024x1024。
+            size (string): 分辨率或尺寸参数，例如 1024x1024。不要使用 1024x576 等小尺寸。
             extra_params (string): 其他模型参数透传，格式为 --key value，可同时传多个。特别地，支持 --ref_url 参数传递参考图URL（可多个），例如：--ref_url https://xxx.com/img1.jpg --ref_url https://xxx.com/img2.jpg
         """
         permission_error = self._permission_denied_message(event)
@@ -2249,7 +2249,7 @@ class OmniDrawPlugin(Star):
         """
         检查画图提示词是否需要搜索参考图。当用户要求画特定角色/人物时，先调用此工具判断是否需要搜索参考图。
         Args:
-            prompt (string): 画图提示词，包含角色/人物描述。
+            prompt (string): 画图提示词，直接使用用户原始输入，不要翻译、不要扩展。
         Returns:
             如果需要搜索参考图，返回需要搜索的角色名和使用方法；如果不需要，返回空字符串。
         """
