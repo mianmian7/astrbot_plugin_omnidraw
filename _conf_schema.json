@@ -451,12 +451,6 @@
         "type": "text",
         "hint": "支持 {keywords} 占位符，自动替换为匹配的关键词。",
         "default": "需要搜索参考图，关键词：{keywords}。请调用 web_search 搜索图片URL，然后调用 generate_image 时通过 extra_params 参数传递参考图：extra_params=\"--ref_url URL1 --ref_url URL2\""
-      },
-      "preset_refs": {
-        "description": "预设角色参考图URL",
-        "type": "object",
-        "hint": "格式：{\"角色名\": [\"URL1\", \"URL2\"]}",
-        "default": {}
       }
     }
   },
