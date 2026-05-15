@@ -31,6 +31,13 @@ class CommandParser:
             # 如果没有值（例如单纯的 --hd），则赋值为 True 
             value = kv[1].strip() if len(kv) > 1 else True
             
-            kwargs[key] = value
+            # 支持多个相同 key：自动转为列表
+            if key in kwargs:
+                if isinstance(kwargs[key], list):
+                    kwargs[key].append(value)
+                else:
+                    kwargs[key] = [kwargs[key], value]
+            else:
+                kwargs[key] = value
             
         return prompt, kwargs

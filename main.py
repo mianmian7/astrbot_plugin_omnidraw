@@ -2148,6 +2148,15 @@ class OmniDrawPlugin(Star):
                     kwargs["size"] = size
                 kwargs.update(self._parse_extra_params(extra_params))
 
+                # 处理 --ref_url 参数：从 URL 下载参考图（不经过聊天）
+                ref_url = kwargs.pop("ref_url", None)
+                if ref_url:
+                    ref_urls = [ref_url] if isinstance(ref_url, str) else list(ref_url)
+                    downloaded = await self._process_and_save_images(ref_urls, session=session)
+                    safe_refs.extend(downloaded)
+                    kwargs["user_refs"] = safe_refs
+                    logger.info(f"[OmniDraw] 已从 {len(downloaded)} 个 URL 下载参考图")
+
                 chain_manager = ChainManager(self.plugin_config, session)
                 tasks = [chain_manager.run_chain("text2img", optimized_action, **kwargs) for optimized_action in optimized_actions]
                 results = await asyncio.gather(*tasks, return_exceptions=True)
