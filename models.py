@@ -234,16 +234,15 @@ class PluginConfig:
         reply_conf["draw_error_message"] = draw_error_message
         reply_conf["selfie_error_message"] = selfie_error_message
 
-        # 自动搜索参考图配置
-        search_ref_conf = _ensure_dict(config_dict, "auto_search_ref_config")
-        enable_auto_search_refs = _to_bool(search_ref_conf.get("enable_auto_search_refs", True))
-        auto_search_trigger_mode = str(search_ref_conf.get("auto_search_trigger_mode", "keyword")).strip() or "keyword"
-        auto_search_keywords = _split_csv_or_lines(search_ref_conf.get("auto_search_keywords", "嘉然,向晚,乃琳,贝拉,A-SOUL"))
-        auto_search_sites = _split_csv_or_lines(search_ref_conf.get("auto_search_sites", "moegirl.org.cn,baidu.com,bilibili.com"))
-        auto_search_max_refs = _to_int(search_ref_conf.get("auto_search_max_refs", 2), 2, minimum=1)
-        auto_search_api_url = str(search_ref_conf.get("auto_search_api_url", "")).strip()
-        auto_search_api_key = str(search_ref_conf.get("auto_search_api_key", "")).strip()
-        auto_search_llm_prompt = str(search_ref_conf.get("auto_search_llm_prompt", "")).strip()
+        # 自动搜索参考图配置（从 optimizer_config 中读取）
+        enable_auto_search_refs = _to_bool(opt_conf.get("enable_auto_search_refs", True))
+        auto_search_trigger_mode = str(opt_conf.get("auto_search_trigger_mode", "keyword")).strip() or "keyword"
+        auto_search_keywords = _split_csv_or_lines(opt_conf.get("auto_search_keywords", "嘉然,向晚,乃琳,贝拉,A-SOUL"))
+        auto_search_sites = _split_csv_or_lines(opt_conf.get("auto_search_sites", "moegirl.org.cn,baidu.com,bilibili.com"))
+        auto_search_max_refs = _to_int(opt_conf.get("auto_search_max_refs", 2), 2, minimum=1)
+        auto_search_api_url = str(opt_conf.get("auto_search_api_url", "")).strip()
+        auto_search_api_key = str(opt_conf.get("auto_search_api_key", "")).strip()
+        auto_search_llm_prompt = str(opt_conf.get("auto_search_llm_prompt", "")).strip()
 
         # 预设角色参考图URL
         preset_refs_raw = config_dict.get("preset_refs", {})
