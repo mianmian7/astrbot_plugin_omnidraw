@@ -420,7 +420,7 @@
       "enable_auto_search_refs": {
         "description": "启用自动搜索参考图",
         "type": "bool",
-        "default": false
+        "default": true
       },
       "auto_search_trigger_mode": {
         "description": "触发模式",
