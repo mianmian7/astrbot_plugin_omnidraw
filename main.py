@@ -1077,61 +1077,20 @@ class OmniDrawPlugin(Star):
         max_refs = self.plugin_config.auto_search_max_refs
         return found_urls[:max_refs]
 
-    async def _search_reference_images_online(self, prompt: str, session: aiohttp.ClientSession) -> List[str]:
-        """通过搜索API在线搜索参考图URL"""
-        if not self.plugin_config.auto_search_api_url:
-            return []
+    def _should_search_refs(self, prompt: str) -> bool:
+        """判断是否需要搜索参考图"""
+        if not self.plugin_config.enable_auto_search_refs:
+            return False
 
-        sites = self.plugin_config.auto_search_sites
-        max_refs = self.plugin_config.auto_search_max_refs
+        trigger_mode = self.plugin_config.auto_search_trigger_mode
 
-        # 构建搜索查询
-        search_queries = []
-        for site in sites:
-            search_queries.append(f"{prompt} 公式图 site:{site}")
-            search_queries.append(f"{prompt} 官方图 site:{site}")
-
-        found_urls = []
-        for query in search_queries[:3]:  # 最多搜索3次
-            try:
-                # 调用搜索API
-                headers = {"Content-Type": "application/json"}
-                if self.plugin_config.auto_search_api_key:
-                    headers["Authorization"] = f"Bearer {self.plugin_config.auto_search_api_key}"
-
-                payload = {
-                    "query": query,
-                    "max_results": max_refs
-                }
-
-                async with session.post(
-                    self.plugin_config.auto_search_api_url,
-                    json=payload,
-                    headers=headers,
-                    timeout=10
-                ) as response:
-                    if response.status == 200:
-                        data = await response.json()
-                        # 假设搜索API返回格式：{"urls": ["url1", "url2"]}
-                        if isinstance(data, dict) and "urls" in data:
-                            urls = data["urls"]
-                            if isinstance(urls, list):
-                                found_urls.extend([str(url) for url in urls if url])
-                        # 或者返回格式：["url1", "url2"]
-                        elif isinstance(data, list):
-                            found_urls.extend([str(url) for url in data if url])
-            except Exception as e:
-                logger.warning(f"[OmniDraw] 搜索参考图失败: {e}")
-
-        # 去重
-        seen = set()
-        unique_urls = []
-        for url in found_urls:
-            if url not in seen:
-                seen.add(url)
-                unique_urls.append(url)
-
-        return unique_urls[:max_refs]
+        if trigger_mode == "always":
+            return True
+        elif trigger_mode == "keyword":
+            keywords = self.plugin_config.auto_search_keywords
+            return any(kw.lower() in prompt.lower() for kw in keywords)
+        else:  # manual
+            return False
 
     def _get_event_images(self, event: AstrMessageEvent) -> List[str]:
         images = []
@@ -2285,6 +2244,29 @@ class OmniDrawPlugin(Star):
         except Exception as exc:
             logger.error(f"[OmniDraw] LLM 画图工具失败: {exc}", exc_info=True)
             return f"系统提示：画图失败 ({exc})。"
+
+    @llm_tool(name="check_need_refs")
+    async def tool_check_need_refs(
+        self,
+        event: AstrMessageEvent,
+        prompt: str,
+    ) -> str:
+        """
+        检查画图提示词是否需要搜索参考图。当用户要求画特定角色/人物时，先调用此工具判断是否需要搜索参考图。
+        Args:
+            prompt (string): 画图提示词，包含角色/人物描述。
+        Returns:
+            如果需要搜索参考图，返回需要搜索的角色名列表；如果不需要，返回空字符串。
+        """
+        if not self.plugin_config.enable_auto_search_refs:
+            return ""
+
+        keywords = self.plugin_config.auto_search_keywords
+        matched_keywords = [kw for kw in keywords if kw.lower() in prompt.lower()]
+
+        if matched_keywords:
+            return f"需要搜索参考图，关键词：{', '.join(matched_keywords)}"
+        return ""
 
     @llm_tool(name="generate_video")
     async def tool_generate_video(
