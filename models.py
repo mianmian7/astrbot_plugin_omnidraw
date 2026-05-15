@@ -239,7 +239,7 @@ class PluginConfig:
         auto_search_trigger_mode = str(search_ref_conf.get("auto_search_trigger_mode", "keyword")).strip() or "keyword"
         auto_search_keywords = _split_csv_or_lines(search_ref_conf.get("auto_search_keywords", "嘉然,向晚,乃琳,贝拉,A-SOUL"))
         auto_search_sites = _split_csv_or_lines(search_ref_conf.get("auto_search_sites", "moegirl.org.cn,baidu.com,bilibili.com"))
-        auto_search_max_refs = _to_int(search_ref_conf.get("auto_search_max_refs", 2), 2, minimum=1, maximum=5)
+        auto_search_max_refs = _to_int(search_ref_conf.get("auto_search_max_refs", 2), 2, minimum=1)
         auto_search_api_url = str(search_ref_conf.get("auto_search_api_url", "")).strip()
         auto_search_api_key = str(search_ref_conf.get("auto_search_api_key", "")).strip()
 
