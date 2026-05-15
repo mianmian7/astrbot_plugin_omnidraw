@@ -412,6 +412,54 @@
     "hint": "格式：预设名:底层提示词。例如 写真:daily smartphone portrait。",
     "default": []
   },
+  "auto_search_ref_config": {
+    "description": "自动搜索参考图配置",
+    "type": "object",
+    "hint": "当用户画特定角色时，自动搜索官方参考图。",
+    "items": {
+      "enable_auto_search_refs": {
+        "description": "启用自动搜索参考图",
+        "type": "bool",
+        "default": false
+      },
+      "auto_search_trigger_mode": {
+        "description": "触发模式",
+        "type": "string",
+        "options": ["keyword", "always", "manual"],
+        "hint": "keyword: 包含关键词时触发; always: 总是触发; manual: 只使用预设URL",
+        "default": "keyword"
+      },
+      "auto_search_keywords": {
+        "description": "触发关键词",
+        "type": "text",
+        "hint": "提示词包含这些关键词时触发搜索，可按行、逗号或空格分隔。",
+        "default": "嘉然,向晚,乃琳,贝拉,A-SOUL"
+      },
+      "auto_search_sites": {
+        "description": "搜索站点",
+        "type": "text",
+        "hint": "搜索参考图的网站，可按行、逗号或空格分隔。",
+        "default": "moegirl.org.cn,bilibili.com,baidu.com"
+      },
+      "auto_search_max_refs": {
+        "description": "最大参考图数量",
+        "type": "int",
+        "default": 2
+      },
+      "auto_search_llm_prompt": {
+        "description": "返回给LLM的提示词",
+        "type": "text",
+        "hint": "支持 {keywords} 占位符，自动替换为匹配的关键词。",
+        "default": "需要搜索参考图，关键词：{keywords}。请调用 web_search 搜索图片URL，然后调用 generate_image 时通过 extra_params 参数传递参考图：extra_params=\"--ref_url URL1 --ref_url URL2\""
+      },
+      "preset_refs": {
+        "description": "预设角色参考图URL",
+        "type": "object",
+        "hint": "格式：{\"角色名\": [\"URL1\", \"URL2\"]}",
+        "default": {}
+      }
+    }
+  },
   "verbose_report": {
     "description": "输出详细调试日志",
     "type": "bool",
