@@ -2195,7 +2195,7 @@ class OmniDrawPlugin(Star):
             count (int): 图片数量。默认为 1。
             aspect_ratio (string): 宽高比例，例如 1:1、3:4、9:16、16:9。
             size (string): 分辨率或尺寸参数，例如 1024x1024。
-            extra_params (string): 其他模型参数透传，格式为 --key value，可同时传多个。
+            extra_params (string): 其他模型参数透传，格式为 --key value，可同时传多个。特别地，支持 --ref_url 参数传递参考图URL（可多个），例如：--ref_url https://xxx.com/img1.jpg --ref_url https://xxx.com/img2.jpg
         """
         permission_error = self._permission_denied_message(event)
         if permission_error:
@@ -2251,7 +2251,7 @@ class OmniDrawPlugin(Star):
         Args:
             prompt (string): 画图提示词，包含角色/人物描述。
         Returns:
-            如果需要搜索参考图，返回需要搜索的角色名列表；如果不需要，返回空字符串。
+            如果需要搜索参考图，返回需要搜索的角色名和使用方法；如果不需要，返回空字符串。
         """
         if not self.plugin_config.enable_auto_search_refs:
             return ""
@@ -2260,7 +2260,11 @@ class OmniDrawPlugin(Star):
         matched_keywords = [kw for kw in keywords if kw.lower() in prompt.lower()]
 
         if matched_keywords:
-            return f"需要搜索参考图，关键词：{', '.join(matched_keywords)}"
+            return (
+                f"需要搜索参考图，关键词：{', '.join(matched_keywords)}。"
+                f"请调用 web_search 搜索图片URL，然后调用 generate_image 时通过 extra_params 参数传递参考图："
+                f"extra_params=\"--ref_url URL1 --ref_url URL2\""
+            )
         return ""
 
     @llm_tool(name="generate_video")
