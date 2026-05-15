@@ -1077,6 +1077,62 @@ class OmniDrawPlugin(Star):
         max_refs = self.plugin_config.auto_search_max_refs
         return found_urls[:max_refs]
 
+    async def _search_reference_images_online(self, prompt: str, session: aiohttp.ClientSession) -> List[str]:
+        """通过搜索API在线搜索参考图URL"""
+        if not self.plugin_config.auto_search_api_url:
+            return []
+
+        sites = self.plugin_config.auto_search_sites
+        max_refs = self.plugin_config.auto_search_max_refs
+
+        # 构建搜索查询
+        search_queries = []
+        for site in sites:
+            search_queries.append(f"{prompt} 公式图 site:{site}")
+            search_queries.append(f"{prompt} 官方图 site:{site}")
+
+        found_urls = []
+        for query in search_queries[:3]:  # 最多搜索3次
+            try:
+                # 调用搜索API
+                headers = {"Content-Type": "application/json"}
+                if self.plugin_config.auto_search_api_key:
+                    headers["Authorization"] = f"Bearer {self.plugin_config.auto_search_api_key}"
+
+                payload = {
+                    "query": query,
+                    "max_results": max_refs
+                }
+
+                async with session.post(
+                    self.plugin_config.auto_search_api_url,
+                    json=payload,
+                    headers=headers,
+                    timeout=10
+                ) as response:
+                    if response.status == 200:
+                        data = await response.json()
+                        # 假设搜索API返回格式：{"urls": ["url1", "url2"]}
+                        if isinstance(data, dict) and "urls" in data:
+                            urls = data["urls"]
+                            if isinstance(urls, list):
+                                found_urls.extend([str(url) for url in urls if url])
+                        # 或者返回格式：["url1", "url2"]
+                        elif isinstance(data, list):
+                            found_urls.extend([str(url) for url in data if url])
+            except Exception as e:
+                logger.warning(f"[OmniDraw] 搜索参考图失败: {e}")
+
+        # 去重
+        seen = set()
+        unique_urls = []
+        for url in found_urls:
+            if url not in seen:
+                seen.add(url)
+                unique_urls.append(url)
+
+        return unique_urls[:max_refs]
+
     def _get_event_images(self, event: AstrMessageEvent) -> List[str]:
         images = []
         visited = set()
@@ -1946,15 +2002,37 @@ class OmniDrawPlugin(Star):
             if safe_refs:
                 kwargs["user_refs"] = safe_refs
 
-            # 自动添加预设参考图（如果用户没有手动提供参考图）
-            if not safe_refs and prompt:
-                preset_urls = self._get_preset_reference_urls(prompt)
-                if preset_urls:
-                    logger.info(f"[OmniDraw] 自动添加 {len(preset_urls)} 个预设参考图")
-                    downloaded_refs = await self._process_and_save_images(preset_urls, session=session)
-                    if downloaded_refs:
-                        safe_refs = downloaded_refs
-                        kwargs["user_refs"] = safe_refs
+            # 自动添加参考图（如果用户没有手动提供参考图）
+            if not safe_refs and prompt and self.plugin_config.enable_auto_search_refs:
+                trigger_mode = self.plugin_config.auto_search_trigger_mode
+                should_search = False
+
+                if trigger_mode == "always":
+                    # 总是搜索
+                    should_search = True
+                elif trigger_mode == "keyword":
+                    # 只有包含关键词时才搜索
+                    keywords = self.plugin_config.auto_search_keywords
+                    should_search = any(kw.lower() in prompt.lower() for kw in keywords)
+
+                if should_search:
+                    # 先检查预设URL
+                    preset_urls = self._get_preset_reference_urls(prompt)
+                    if preset_urls:
+                        logger.info(f"[OmniDraw] 自动添加 {len(preset_urls)} 个预设参考图")
+                        downloaded_refs = await self._process_and_save_images(preset_urls, session=session)
+                        if downloaded_refs:
+                            safe_refs = downloaded_refs
+                            kwargs["user_refs"] = safe_refs
+                    else:
+                        # 如果没有预设URL，尝试在线搜索
+                        search_urls = await self._search_reference_images_online(prompt, session)
+                        if search_urls:
+                            logger.info(f"[OmniDraw] 在线搜索到 {len(search_urls)} 个参考图")
+                            downloaded_refs = await self._process_and_save_images(search_urls, session=session)
+                            if downloaded_refs:
+                                safe_refs = downloaded_refs
+                                kwargs["user_refs"] = safe_refs
 
             msg = self._format_pending_message(
                 self.plugin_config.draw_pending_message,
