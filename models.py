@@ -99,6 +99,7 @@ class PluginConfig:
     auto_search_preset_refs: Dict[str, List[str]]
     auto_search_api_url: str  # 搜索API地址
     auto_search_api_key: str  # 搜索API密钥
+    auto_search_llm_prompt: str  # 返回给LLM的提示词
 
     @classmethod
     def from_dict(cls, config_dict: Dict[str, Any], data_dir: str) -> "PluginConfig":
@@ -242,6 +243,7 @@ class PluginConfig:
         auto_search_max_refs = _to_int(search_ref_conf.get("auto_search_max_refs", 2), 2, minimum=1)
         auto_search_api_url = str(search_ref_conf.get("auto_search_api_url", "")).strip()
         auto_search_api_key = str(search_ref_conf.get("auto_search_api_key", "")).strip()
+        auto_search_llm_prompt = str(search_ref_conf.get("auto_search_llm_prompt", "")).strip()
 
         # 预设角色参考图URL
         preset_refs_raw = search_ref_conf.get("preset_refs", {})
@@ -297,6 +299,7 @@ class PluginConfig:
             auto_search_preset_refs=auto_search_preset_refs,
             auto_search_api_url=auto_search_api_url,
             auto_search_api_key=auto_search_api_key,
+            auto_search_llm_prompt=auto_search_llm_prompt,
         )
 
     def get_provider(self, provider_id: str) -> Optional[ProviderConfig]:

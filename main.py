@@ -2260,11 +2260,15 @@ class OmniDrawPlugin(Star):
         matched_keywords = [kw for kw in keywords if kw.lower() in prompt.lower()]
 
         if matched_keywords:
-            return (
-                f"需要搜索参考图，关键词：{', '.join(matched_keywords)}。"
-                f"请调用 web_search 搜索图片URL，然后调用 generate_image 时通过 extra_params 参数传递参考图："
-                f"extra_params=\"--ref_url URL1 --ref_url URL2\""
-            )
+            # 使用配置中的提示词，如果没有则使用默认提示词
+            llm_prompt = self.plugin_config.auto_search_llm_prompt
+            if not llm_prompt:
+                llm_prompt = (
+                    "需要搜索参考图，关键词：{keywords}。"
+                    "请调用 web_search 搜索图片URL，然后调用 generate_image 时通过 extra_params 参数传递参考图："
+                    "extra_params=\"--ref_url URL1 --ref_url URL2\""
+                )
+            return llm_prompt.format(keywords=', '.join(matched_keywords))
         return ""
 
     @llm_tool(name="generate_video")
